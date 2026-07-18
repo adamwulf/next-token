@@ -65,6 +65,37 @@
       }
       textarea:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
 
+      /* Token view: the typed prompt split into its tokens */
+      .tokenview-wrap { margin-top: 16px; }
+      .token-count { text-transform: none; letter-spacing: 0; color: var(--muted); font-size: 14px; }
+      .tokenview {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 3px;
+        font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+        font-size: 22px;
+        line-height: 1.5;
+        min-height: 34px;
+      }
+      .tokenview-empty { font-family: inherit; color: var(--muted); font-style: italic; font-size: 16px; }
+      .tk {
+        border-radius: 5px;
+        padding: 3px 1px;
+        white-space: pre;
+      }
+      /* Alternating token tints so boundaries are obvious on camera. */
+      .tk.c0 { background: rgba(77, 163, 255, 0.30); }
+      .tk.c1 { background: rgba(124, 242, 156, 0.28); }
+      .tk.c2 { background: rgba(255, 209, 102, 0.30); }
+      .tk.c3 { background: rgba(214, 141, 255, 0.30); }
+      .tk.c4 { background: rgba(255, 138, 138, 0.28); }
+      .tk .ws-dot { color: rgba(255, 255, 255, 0.45); }
+      .tk.bytes {
+        background: repeating-linear-gradient(45deg, rgba(255,107,107,0.28) 0 6px, rgba(255,107,107,0.12) 6px 12px);
+        color: var(--muted);
+        font-style: italic;
+      }
+
       /* Committed-token breadcrumb */
       .committed-wrap { margin-top: 16px; }
       .committed { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
@@ -180,6 +211,13 @@
           <span class="counter" id="counter">0 / 500</span>
         </div>
         <textarea id="prompt" maxlength="500" spellcheck="false">The capital of France is</textarea>
+
+        <div class="tokenview-wrap">
+          <label>Your text as tokens <span id="tokenCount" class="token-count"></span></label>
+          <div class="tokenview" id="tokenview">
+            <span class="tokenview-empty">Type above to see how it splits into tokens.</span>
+          </div>
+        </div>
 
         <div class="committed-wrap">
           <label>Tokens chosen so far <span style="text-transform: none; letter-spacing: 0">(click ✕ to back out)</span></label>

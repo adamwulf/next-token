@@ -22,6 +22,8 @@ const DEFAULTS = { temp: 1.0, topk: 5, topp: 1.0 };
 const els = {
   prompt: document.getElementById("prompt"),
   counter: document.getElementById("counter"),
+  tokenview: document.getElementById("tokenview"),
+  tokenCount: document.getElementById("tokenCount"),
   committed: document.getElementById("committed"),
   temp: document.getElementById("temp"),
   topk: document.getElementById("topk"),
@@ -42,6 +44,13 @@ let seed = ""; // the prompt text at the time of the first Predict
 let committed = []; // token strings the user has committed, in order
 let baseCandidates = null; // [{ token, logprob }] for the CURRENT position, from the API
 let busy = false;
+
+// Token-view state (declared here so the on-load tokenizePrompt() call, which
+// runs before the token-view section below, can access them — `let` bindings
+// aren't hoisted like function declarations are).
+let tokenizeTimer = null;
+let tokenizeReqId = 0;
+const TOKENIZE_DEBOUNCE_MS = 400;
 
 // ---- meta-parameter controls (live client-side reshape, no server refetch) ----
 //
@@ -65,13 +74,17 @@ els.topp.addEventListener("input", () => {
   rerenderCandidates();
 });
 
-els.prompt.addEventListener("input", updateCounter);
+els.prompt.addEventListener("input", () => {
+  updateCounter();
+  scheduleTokenize();
+});
 
 els.predictBtn.addEventListener("click", () => startFresh());
 els.nextBtn.addEventListener("click", () => commitNextToken());
 els.resetBtn.addEventListener("click", () => reset());
 
 updateCounter();
+tokenizePrompt(); // show the token split for the pre-filled prompt on load
 
 // ---- main actions ----
 
@@ -138,6 +151,8 @@ function reset() {
   els.nextBtn.disabled = true;
   renderCommitted();
   updateCounter();
+  renderTokens([]); // prompt is now empty
+  tokenizeReqId++; // cancel any in-flight tokenize response
   setStatus("");
 }
 
@@ -302,6 +317,71 @@ function renderCommitted() {
     chip.innerHTML = `<span>${tokenHtml(tok)}</span><button class="x" title="Back out to here" aria-label="Remove this token and everything after it">✕</button>`;
     chip.querySelector(".x").addEventListener("click", () => backOutTo(i));
     els.committed.appendChild(chip);
+  });
+}
+
+// ---- token view (how the typed prompt splits into tokens) ----
+//
+// Tokenization is done server-side via the tokenize function (davinci-002 echo,
+// the exact tokenizer gpt-3.5-turbo-instruct uses), debounced so we don't hit
+// the API on every keystroke. A monotonically increasing request id (declared
+// with the other module state near the top) guards against out-of-order
+// responses overwriting a newer one.
+
+function scheduleTokenize() {
+  if (tokenizeTimer) clearTimeout(tokenizeTimer);
+  tokenizeTimer = setTimeout(tokenizePrompt, TOKENIZE_DEBOUNCE_MS);
+}
+
+async function tokenizePrompt() {
+  const text = els.prompt.value;
+  const reqId = ++tokenizeReqId;
+
+  if (text.length === 0) {
+    renderTokens([]);
+    return;
+  }
+
+  try {
+    const resp = await fetch("/.netlify/functions/tokenize", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text }),
+    });
+    const data = await resp.json();
+    if (reqId !== tokenizeReqId) return; // a newer request superseded this one
+    if (!resp.ok) throw new Error(data.error || `Tokenize failed (${resp.status})`);
+    renderTokens(data.tokens || []);
+  } catch (err) {
+    if (reqId !== tokenizeReqId) return;
+    els.tokenCount.textContent = "";
+    els.tokenview.innerHTML = `<span class="tokenview-empty">Couldn't tokenize: ${escapeHtml(err.message)}</span>`;
+  }
+}
+
+// Render the tokens as colored chips with visible whitespace. Colors cycle so
+// adjacent tokens always differ, making the boundaries pop.
+function renderTokens(tokens) {
+  if (!tokens.length) {
+    els.tokenCount.textContent = "";
+    els.tokenview.innerHTML =
+      '<span class="tokenview-empty">Type above to see how it splits into tokens.</span>';
+    return;
+  }
+  els.tokenCount.textContent = `— ${tokens.length} token${tokens.length === 1 ? "" : "s"}`;
+  els.tokenview.innerHTML = "";
+  tokens.forEach((t, i) => {
+    const span = document.createElement("span");
+    if (t.bytes) {
+      span.className = "tk bytes";
+      span.title = "Part of a multi-byte character (raw bytes)";
+      span.textContent = "▪";
+    } else {
+      span.className = `tk c${i % 5}`;
+      span.title = JSON.stringify(t.text); // exact token text on hover
+      span.innerHTML = tokenHtml(t.text);
+    }
+    els.tokenview.appendChild(span);
   });
 }
 

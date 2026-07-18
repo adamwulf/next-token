@@ -9,6 +9,7 @@ One HTML page + one JS file talking to a single Netlify Function. The OpenAI API
 ## Features
 
 - **Prompt box** with a live character counter and a hard 500-char limit (`maxlength` + `"123 / 500"`).
+- **Your text as tokens** — as you type, the prompt is split into its exact tokens and shown as color-coded chips (leading spaces and newlines drawn as `␣` / `⏎`). This is the model's *real* tokenization, fetched server-side and debounced (see "Tokenizer" below).
 - **Predict** — fetch the model's true top-5 next-token candidates, sorted by probability, each with a bar (`exp(logprob)` as %).
 - **Sampling meta-parameters** — Temperature (0–2), Top-k (1–5), Top-p (0.1–1.0). Dragging any slider reshapes the on-screen bars instantly, **client-side, with no server call** (the model's probabilities don't depend on these params — see below). Candidates ruled out by top-k / top-p are greyed out. Whatever the bars show is exactly what **Next token** samples from.
 - **Next token →** — samples one token *from the reshaped distribution* (per the current temperature / top-k / top-p, so not always the argmax), commits it, and re-predicts from the new position.
@@ -23,8 +24,9 @@ Every action that changes the **text** (choose/sample a token, remove one with �
 | File | What it is |
 |------|------------|
 | `index.html` | The page: prompt + counter, breadcrumb, meta-param sliders, buttons, bar chart. |
-| `app.js` | Front-end logic: fetches candidates, reshapes/samples the distribution client-side, renders. |
+| `app.js` | Front-end logic: fetches candidates, reshapes/samples the distribution client-side, renders bars + the token view. |
 | `netlify/functions/next-token.mjs` | Server function: holds the API key, returns only the base top-5 logprobs. |
+| `netlify/functions/tokenize.mjs` | Server function: returns the prompt's exact token boundaries (davinci-002 echo). |
 | `netlify.toml` | Netlify config (no build step). |
 
 ## Setup
@@ -91,6 +93,16 @@ The math, in `app.js` → `shapeDistribution()`:
 - The kept probabilities are **renormalized to sum to 1**, and **Next token** samples from exactly that distribution — so the token chosen is always consistent with the bars on screen.
 
 *(Note: top-k here maxes at 5 because the display only ever has the API's top-5 candidates. That's plenty for the teaching demo.)*
+
+## Tokenizer: why the token view calls the API (and uses davinci-002)
+
+The "your text as tokens" view shows the model's **exact** token boundaries. Getting that exactly right is trickier than it looks:
+
+- **`gpt-3.5-turbo-instruct` does *not* use `cl100k_base`** — despite what most "GPT-3.5 uses cl100k_base" references say. That's true of the *chat* model (`gpt-3.5-turbo`), but the `-instruct` variant inherits the older **p50k-style** tokenizer from the davinci base models it descends from. Verified by comparing the API's own `usage.prompt_tokens` against the tokenizer libraries on strings where they disagree — e.g. `"Don't"` is one token in `cl100k_base` but splits `Don`|`'t` here; `gpt-3.5-turbo-instruct` matched `davinci-002` exactly (6/6) and `cl100k_base` on only 2/6.
+- **No offline JS tokenizer library is byte-exact for it.** Even the p50k/r50k libraries (and OpenAI's own [tokenizer page](https://platform.openai.com/tokenizer), which uses them) diverge on some tokens — e.g. `"CamelCase"` → the model splits `Cam`|`el` and keeps `_case` as one token, while the p50k library gives `C`|`amel` and `_`|`case`.
+- **So the only exact source is the OpenAI API itself.** `davinci-002` shares `gpt-3.5-turbo-instruct`'s exact tokenizer *and* supports `echo: true` (the instruct model refuses `echo` + `logprobs` together), so `tokenize.mjs` asks `davinci-002` to echo the prompt back split into its tokens (`choices[0].logprobs.tokens`). The front-end debounces this (~400 ms) so it isn't called on every keystroke.
+
+Edge cases the function handles: a 1-token prompt (the API needs ≥2 tokens for `max_tokens: 0`, so it retries with `max_tokens: 1` and drops the generated token) and multi-byte characters (emoji, CJK), which `echo` returns as raw `bytes:\xNN` fragments — the UI shows those as a hatched "raw bytes" chip rather than garbled text.
 
 ## Deploying publicly (optional — TODO, deferred)
 

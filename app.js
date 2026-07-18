@@ -44,6 +44,7 @@ const els = {
   nextBtn: document.getElementById("nextBtn"),
   resetBtn: document.getElementById("resetBtn"),
   status: document.getElementById("status"),
+  rateLimitBanner: document.getElementById("rateLimitBanner"),
   candHead: document.getElementById("candHead"),
   bars: document.getElementById("bars"),
   tooltip: document.getElementById("tooltip"),
@@ -304,8 +305,16 @@ async function fetchCandidates() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ prompt: currentText }),
     });
+    // Netlify's per-IP rate limiter returns a 429 with its own (non-JSON) body,
+    // so handle it before trying to parse — otherwise resp.json() throws and the
+    // user sees a cryptic parse error instead of a helpful message.
+    if (resp.status === 429) {
+      if (reqId === predictReqId) setRateLimited(true);
+      throw new Error("Server is busy (rate limited). Try again in a moment.");
+    }
     const data = await resp.json();
     if (reqId !== predictReqId) return; // a newer prediction superseded this one
+    setRateLimited(false); // a response got through — clear any prior 429 banner
     if (!resp.ok) throw new Error(data.error || `Request failed (${resp.status})`);
 
     // The model decided the text is complete: it predicted end-of-text and the
@@ -575,8 +584,15 @@ async function tokenizePrompt() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ text }),
     });
+    // Rate-limit 429s come back as a non-JSON body from Netlify's edge; handle
+    // before parsing so the user gets a clear message, not a parse error.
+    if (resp.status === 429) {
+      if (reqId === tokenizeReqId) setRateLimited(true);
+      throw new Error("Server is busy (rate limited). Try again in a moment.");
+    }
     const data = await resp.json();
     if (reqId !== tokenizeReqId) return; // a newer request superseded this one
+    setRateLimited(false); // a response got through — clear any prior 429 banner
     if (!resp.ok) throw new Error(data.error || `Tokenize failed (${resp.status})`);
     renderTokens(data.tokens || []);
   } catch (err) {
@@ -638,6 +654,12 @@ function setBusy(b) {
 function setStatus(msg, isError = false) {
   els.status.textContent = msg;
   els.status.className = "status" + (isError ? " error" : "");
+}
+
+// Show/hide the top-of-page "slow down" banner. Shown when the server returns a
+// 429 (rate limited); cleared once a later request gets a response through.
+function setRateLimited(on) {
+  els.rateLimitBanner.hidden = !on;
 }
 
 // Render a token with visible whitespace so learners can see tokens often

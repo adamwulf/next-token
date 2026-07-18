@@ -15,13 +15,21 @@
 // The API key lives ONLY here as an env var, never sent to the browser. Model
 // and params are hard-coded so this endpoint can only tokenize, nothing else.
 //
-// TODO (future public deploy only): add an OpenAI spend cap + Netlify per-IP
-// rate limiting. Not needed for the local `netlify dev` recording workflow.
+// Netlify per-IP rate limiting is enabled below (see the `config` export). For
+// a public deploy, also set an OpenAI project spend cap as the real cost
+// backstop.
 
 const OPENAI_URL = "https://api.openai.com/v1/completions";
 
 const MODEL = "davinci-002"; // shares gpt-3.5-turbo-instruct's exact tokenizer, and supports echo
 const MAX_PROMPT_CHARS = 500; // match the next-token demo's cap
+
+// Netlify per-IP rate limiting (declared here, not in netlify.toml). ~1 req/sec:
+// 60 requests per 60-second sliding window per IP; the next request gets a 429.
+// windowSize is in seconds (max 180). Enforced on deployed Netlify only.
+export const config = {
+  rateLimit: { windowSize: 60, windowLimit: 60, aggregateBy: ["ip"] },
+};
 
 export default async (req) => {
   if (req.method !== "POST") {

@@ -262,6 +262,20 @@
       .status { min-height: 24px; color: var(--muted); font-size: 17px; }
       .status.error { color: var(--danger); }
 
+      /* Top-of-page rate-limit alert. Hidden via the [hidden] attribute (toggled
+         in app.js) until the server returns a 429. */
+      .ratelimit-banner {
+        margin: 0 0 16px;
+        padding: 12px 16px;
+        border: 1px solid var(--danger);
+        border-radius: 8px;
+        background: rgba(255, 107, 107, 0.12);
+        color: var(--danger);
+        font-size: 16px;
+        font-weight: 600;
+      }
+      .ratelimit-banner[hidden] { display: none; }
+
       /* Candidate list */
       .candidates-head {
         font-size: 15px;
@@ -333,6 +347,10 @@
   <body>
     <div class="wrap">
       <h1>Next-Token Prediction</h1>
+      <!-- Shown only when the server rate-limits us (HTTP 429). Toggled in app.js. -->
+      <div class="ratelimit-banner" id="rateLimitBanner" role="alert" hidden>
+        Slow down a moment — the server is rate limiting requests. Try again in a few seconds.
+      </div>
       <p class="subtitle">
         See the model's real next-token probabilities — then reshape them with
         temperature, top-k, and top-p, and build the text one token at a time.

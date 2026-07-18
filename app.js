@@ -176,16 +176,16 @@ async function commitToken(token) {
 }
 
 // Where `token` fell in the model's TRUE next-token distribution at the moment
-// it was chosen: its 1-based rank and its probability (softmax over the top-5
-// base logprobs — the same numbers the bars show at neutral settings). Used for
-// the breadcrumb colour and the per-chip hover tooltip.
+// it was chosen: its 1-based rank, the number of candidates, and its probability
+// (softmax over the base logprobs — the same numbers the bars show at neutral
+// settings). Used for the breadcrumb colour and the per-chip hover tooltip.
 function tokenStats(token) {
-  if (!baseCandidates || baseCandidates.length === 0) return { rank: null, prob: null, wasTop: false };
+  if (!baseCandidates || baseCandidates.length === 0) return { rank: null, of: null, prob: null, wasTop: false };
   const sorted = [...baseCandidates].sort((a, b) => b.logprob - a.logprob);
   const total = sorted.reduce((s, c) => s + Math.exp(c.logprob), 0);
   const idx = sorted.findIndex((c) => c.token === token);
-  if (idx === -1) return { rank: null, prob: null, wasTop: false };
-  return { rank: idx + 1, prob: Math.exp(sorted[idx].logprob) / total, wasTop: idx === 0 };
+  if (idx === -1) return { rank: null, of: sorted.length, prob: null, wasTop: false };
+  return { rank: idx + 1, of: sorted.length, prob: Math.exp(sorted[idx].logprob) / total, wasTop: idx === 0 };
 }
 
 // Truncate the committed sequence back to `keep` tokens, then re-predict from
@@ -436,7 +436,8 @@ function renderCommitted() {
 function committedTooltip(c) {
   const parts = [];
   if (c.rank != null) {
-    parts.push(c.wasTop ? `Rank 1 (the model's top choice)` : `Rank ${c.rank} of 5 — a less-likely choice`);
+    if (c.wasTop) parts.push("Rank 1 (the model's top choice)");
+    else parts.push(`Rank ${c.rank}${c.of ? ` of ${c.of}` : ""} — a less-likely choice`);
   }
   if (c.prob != null) parts.push(`${(c.prob * 100).toFixed(1)}% probability`);
   if (c.eot) parts.push("end-of-text — the model completed the text here");

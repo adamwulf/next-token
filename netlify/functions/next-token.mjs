@@ -29,7 +29,7 @@ const OPENAI_URL = "https://api.openai.com/v1/completions";
 // Hard-coded so the caller can never change them:
 const MODEL = "gpt-3.5-turbo-instruct"; // a text-COMPLETION model, not a chat model
 const MAX_TOKENS = 1; // we only need the next single token's distribution
-const LOGPROBS = 5; // completions API: integer count of alternatives (max 5)
+const LOGPROBS = 20; // completions API returns the top-N exact candidates; it caps at 20
 const MAX_PROMPT_CHARS = 500; // truncate the prompt to bound cost/abuse
 
 export default async (req) => {

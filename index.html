@@ -1,0 +1,458 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Next-Token Prediction</title>
+    <style>
+      :root {
+        --bg: #0f1115;
+        --panel: #1a1e27;
+        --panel-2: #232936;
+        --text: #f2f5fa;
+        --muted: #9aa5b8;
+        --accent: #4da3ff;
+        --chosen: #ffd166;
+        --nontop: #e06cff;
+        --bar-bg: #2b3242;
+        --border: #2e3646;
+        --danger: #ff6b6b;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--text);
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+        font-size: 20px;
+        line-height: 1.4;
+        -webkit-font-smoothing: antialiased;
+      }
+      .wrap { max-width: 1400px; margin: 0 auto; padding: 32px 28px 70px; }
+      /* Two columns on wide screens: controls on the left, candidates on the
+         right so the (up to 20) candidate bars get the full viewport height.
+         Stacks to one column on narrower screens. */
+      .layout { display: grid; grid-template-columns: minmax(380px, 41%) 1fr; gap: 26px; align-items: start; }
+      .candidates-col { position: sticky; top: 20px; }
+      @media (max-width: 900px) {
+        .layout { grid-template-columns: 1fr; }
+        .candidates-col { position: static; }
+      }
+      h1 { font-size: 40px; margin: 0 0 4px; letter-spacing: -0.5px; }
+      .subtitle { color: var(--muted); font-size: 20px; margin: 0 0 26px; }
+
+      .panel {
+        background: var(--panel);
+        border: 1px solid var(--border);
+        border-radius: 14px;
+        padding: 22px;
+        margin-bottom: 22px;
+      }
+      label {
+        display: block;
+        font-size: 15px;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+        color: var(--muted);
+        margin-bottom: 8px;
+      }
+
+      .prompt-head { display: flex; justify-content: space-between; align-items: baseline; }
+      .counter { font-variant-numeric: tabular-nums; font-size: 15px; color: var(--muted); }
+      .counter.limit { color: var(--danger); }
+      textarea {
+        width: 100%;
+        min-height: 74px;
+        resize: vertical;
+        background: var(--panel-2);
+        color: var(--text);
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        padding: 14px 16px;
+        font-size: 22px;
+        font-family: inherit;
+        line-height: 1.4;
+      }
+      textarea:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+      /* Token view: the typed prompt split into its tokens */
+      .tokenview-wrap { margin-top: 16px; }
+      .token-count { text-transform: none; letter-spacing: 0; color: var(--muted); font-size: 14px; }
+      .tokenview {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 3px;
+        font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+        font-size: 22px;
+        line-height: 1.5;
+        min-height: 34px;
+        border-radius: 10px;
+      }
+      .tokenview-empty { font-family: inherit; color: var(--muted); font-style: italic; font-size: 16px; }
+
+      /* Prompt / Tokens tabs */
+      .tabs { display: flex; align-items: center; gap: 6px; margin-bottom: 14px; }
+      .tab {
+        font-size: 15px;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+        font-family: inherit;
+        color: var(--muted);
+        background: transparent;
+        border: none;
+        border-bottom: 2px solid transparent;
+        border-radius: 0;
+        padding: 6px 4px;
+        cursor: pointer;
+      }
+      .tab:hover { color: var(--text); }
+      .tab.active { color: var(--text); border-bottom-color: var(--accent); }
+      .tabs .counter { margin-left: auto; }
+      .tk {
+        border-radius: 5px;
+        padding: 3px 1px;
+        white-space: pre;
+      }
+      /* Alternating token tints so boundaries are obvious on camera. */
+      .tk.c0 { background: rgba(77, 163, 255, 0.30); }
+      .tk.c1 { background: rgba(124, 242, 156, 0.28); }
+      .tk.c2 { background: rgba(255, 209, 102, 0.30); }
+      .tk.c3 { background: rgba(214, 141, 255, 0.30); }
+      .tk.c4 { background: rgba(255, 138, 138, 0.28); }
+      .tk .ws-dot { color: rgba(255, 255, 255, 0.45); }
+      .tk.bytes {
+        background: repeating-linear-gradient(45deg, rgba(255,107,107,0.28) 0 6px, rgba(255,107,107,0.12) 6px 12px);
+        color: var(--muted);
+        font-style: italic;
+      }
+
+      /* Committed-token breadcrumb */
+      .committed-wrap { margin-top: 16px; }
+      .committed { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+      .committed-empty { color: var(--muted); font-style: italic; font-size: 16px; }
+      .chip {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        background: var(--panel-2);
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        padding: 6px 8px 6px 12px;
+        font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+        font-size: 19px;
+        white-space: pre;
+      }
+      /* Gold = the model's most-probable token; magenta = a less-likely pick
+         (the teaching moment: the model didn't take the obvious path). */
+      .chip.top { border-color: var(--chosen); color: var(--chosen); }
+      .chip.nontop { border-color: var(--nontop); color: var(--nontop); }
+
+      /* Rich hover tooltip for chosen tokens (appears immediately, no delay). */
+      .tooltip {
+        position: fixed;
+        z-index: 100;
+        pointer-events: none;
+        background: #0b0d12;
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        padding: 10px 14px;
+        box-shadow: 0 8px 28px rgba(0, 0, 0, 0.55);
+        font-size: 15px;
+        line-height: 1.5;
+        color: var(--text);
+        max-width: 300px;
+        opacity: 0;
+        transform: translateY(4px);
+        transition: opacity 0.08s ease, transform 0.08s ease;
+      }
+      .tooltip.show { opacity: 1; transform: translateY(0); }
+      .tooltip .tt-token {
+        font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+        font-size: 17px; font-weight: 700; margin-bottom: 4px;
+      }
+      .tooltip .tt-rank { color: var(--muted); }
+      .tooltip .tt-prob { font-variant-numeric: tabular-nums; font-weight: 700; }
+      .tooltip .tt-prob.top { color: var(--chosen); }
+      .tooltip .tt-prob.nontop { color: var(--nontop); }
+      .tooltip .tt-prob.eot { color: var(--accent); }
+      .tooltip .ws { color: var(--muted); }
+      /* End-of-text token: a distinct "stop" look wherever it's rendered. */
+      .chip.eot { border-color: var(--accent); color: var(--accent); font-style: italic; }
+      .eot { color: var(--accent); font-style: italic; }
+      .finished-note {
+        background: var(--panel-2);
+        border: 1px solid var(--accent);
+        border-radius: 10px;
+        padding: 18px 20px;
+        font-size: 20px;
+        line-height: 1.5;
+        color: var(--text);
+      }
+      .finished-note strong { color: var(--accent); }
+      .legend {
+        text-transform: none; letter-spacing: 0; font-size: 14px; color: var(--muted);
+        display: inline-flex; align-items: center; gap: 5px; margin-left: 6px;
+      }
+      .legend-dot { width: 10px; height: 10px; border-radius: 3px; display: inline-block; margin-left: 8px; }
+      .legend-dot.top { background: var(--chosen); }
+      .legend-dot.nontop { background: var(--nontop); }
+      .chip .x {
+        cursor: pointer;
+        border: none;
+        background: transparent;
+        color: var(--muted);
+        font-size: 20px;
+        line-height: 1;
+        padding: 0 2px;
+        font-family: inherit;
+      }
+      .chip .x:hover { color: var(--danger); }
+      .ws { color: var(--muted); opacity: 0.6; }
+
+      /* Collapsible meta-parameters */
+      .metas-summary {
+        list-style: none;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        user-select: none;
+      }
+      .metas-summary::-webkit-details-marker { display: none; }
+      /* Leading triangle shows collapse state (and that the header is clickable). */
+      .metas-marker { color: var(--muted); font-size: 12px; width: 12px; }
+      .metas-summary:hover .metas-marker { color: var(--text); }
+      .metas-marker::before { content: "\25B6"; } /* ▶ collapsed */
+      .metas-details[open] .metas-marker::before { content: "\25BC"; } /* ▼ expanded */
+      .metas-summary:hover .metas-title { color: var(--text); }
+      .metas-title {
+        font-size: 15px; text-transform: uppercase; letter-spacing: 1px; color: var(--muted);
+      }
+      .metas-hint {
+        font-size: 15px; color: var(--muted); font-variant-numeric: tabular-nums;
+      }
+      /* Hide the inline value hint when expanded (the sliders show the values). */
+      .metas-details[open] .metas-hint { display: none; }
+
+      /* Meta-parameter sliders */
+      .metas { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 22px; margin-top: 18px; }
+      .meta-head { display: flex; justify-content: space-between; align-items: baseline; }
+      .meta-value { font-variant-numeric: tabular-nums; font-size: 22px; font-weight: 700; color: var(--chosen); }
+      input[type="range"] { width: 100%; accent-color: var(--accent); height: 28px; }
+      .meta-scale { display: flex; justify-content: space-between; color: var(--muted); font-size: 13px; margin-top: -4px; }
+
+      /* Buttons */
+      .buttons { display: flex; gap: 12px; flex-wrap: wrap; margin-top: 20px; }
+      button {
+        font-size: 20px;
+        font-weight: 600;
+        font-family: inherit;
+        padding: 14px 22px;
+        border-radius: 10px;
+        border: 1px solid var(--border);
+        background: var(--panel-2);
+        color: var(--text);
+        cursor: pointer;
+      }
+      button:hover:not(:disabled) { background: #2c3444; }
+      button.primary { background: var(--accent); border-color: var(--accent); color: #06121f; }
+      button.primary:hover:not(:disabled) { background: #6bb4ff; }
+      button:disabled { opacity: 0.45; cursor: not-allowed; }
+
+      .status { min-height: 24px; color: var(--muted); font-size: 17px; }
+      .status.error { color: var(--danger); }
+
+      /* Candidate list */
+      .candidates-head {
+        font-size: 15px;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+        color: var(--muted);
+        margin: 2px 2px 14px;
+      }
+      /* Effective / Raw probability toggle (inside the meta-params area) */
+      .prob-row { display: flex; align-items: center; gap: 12px; margin-top: 12px; }
+      .prob-row .prob-label {
+        font-size: 15px; text-transform: uppercase; letter-spacing: 1px; color: var(--muted);
+      }
+      .prob-toggle {
+        display: inline-flex;
+        background: var(--panel-2);
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        padding: 2px;
+        flex: none;
+      }
+      .prob-tab {
+        font-size: 14px;
+        font-family: inherit;
+        color: var(--muted);
+        background: transparent;
+        border: none;
+        border-radius: 6px;
+        padding: 5px 12px;
+        cursor: pointer;
+        white-space: nowrap;
+      }
+      .prob-tab:hover { color: var(--text); }
+      .prob-tab.active { background: var(--accent); color: #06121f; font-weight: 600; }
+      .bars { display: flex; flex-direction: column; gap: 12px; }
+      .bar-row { display: grid; grid-template-columns: 230px 1fr 92px; align-items: center; gap: 16px; border-radius: 8px; }
+      .bar-row.clickable { cursor: pointer; }
+      .bar-row.clickable:hover .tok { border-color: var(--accent); color: var(--accent); }
+      .bar-row.clickable:hover .fill { filter: brightness(1.18); }
+      .tok {
+        font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+        font-size: 22px;
+        text-align: right;
+        white-space: pre;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        background: var(--panel-2);
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        padding: 8px 12px;
+      }
+      .bar-row.excluded .tok { opacity: 0.4; }
+      .bar-row.excluded .fill { opacity: 0.25; }
+      .track { background: var(--bar-bg); border-radius: 8px; height: 34px; overflow: hidden; }
+      .fill {
+        height: 100%;
+        border-radius: 8px 0 0 8px;
+        background: linear-gradient(90deg, #3a72c9, var(--accent));
+        transition: width 0.35s ease;
+        min-width: 2px;
+      }
+      .pct { font-variant-numeric: tabular-nums; font-size: 22px; font-weight: 700; text-align: right; }
+      .pct.excluded { color: var(--muted); }
+
+      .footnote { margin-top: 30px; color: var(--muted); font-size: 15px; line-height: 1.6; }
+      .footnote code { background: var(--panel-2); padding: 2px 6px; border-radius: 5px; font-size: 14px; }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <h1>Next-Token Prediction</h1>
+      <p class="subtitle">
+        See the model's real next-token probabilities — then reshape them with
+        temperature, top-k, and top-p, and build the text one token at a time.
+      </p>
+
+      <div class="layout">
+      <!-- LEFT: prompt, tokens, controls -->
+      <div class="controls-col">
+
+      <!-- Prompt + committed-token breadcrumb -->
+      <div class="panel">
+        <!-- Tabs switch between the editable prompt and its tokenized view. -->
+        <div class="tabs" role="tablist">
+          <button class="tab active" id="tabPrompt" role="tab" aria-selected="true">Prompt</button>
+          <button class="tab" id="tabTokens" role="tab" aria-selected="false">Tokens</button>
+          <span class="counter" id="counter">0 / 500</span>
+        </div>
+
+        <!-- Prompt tab: the editable box. -->
+        <div id="editMode">
+          <textarea id="prompt" maxlength="500" spellcheck="false">The capital of France is</textarea>
+        </div>
+
+        <!-- Tokens tab: the prompt shown as its exact tokens. -->
+        <div id="viewMode" style="display: none">
+          <div class="tokenview" id="tokenview">
+            <span class="tokenview-empty">Type a prompt to see how it splits into tokens.</span>
+          </div>
+        </div>
+
+        <div class="buttons" style="margin-top: 18px">
+          <button class="primary" id="nextBtn" disabled>Next token →</button>
+          <button id="resetBtn">Reset</button>
+        </div>
+
+        <div class="committed-wrap">
+          <label>Tokens chosen so far
+            <span class="legend">
+              <span class="legend-dot top"></span>most-probable
+              <span class="legend-dot nontop"></span>less-likely pick
+              <span style="text-transform: none; letter-spacing: 0; color: var(--muted)">· click ✕ to back out</span>
+            </span>
+          </label>
+          <div class="committed" id="committed"></div>
+          <div class="status" id="status"></div>
+        </div>
+      </div>
+
+      <!-- Sampling meta-parameters (collapsible) -->
+      <div class="panel">
+        <details class="metas-details" id="metasDetails">
+          <summary class="metas-summary">
+            <span class="metas-marker" aria-hidden="true"></span>
+            <span class="metas-title">Sampling meta-parameters</span>
+            <span class="metas-hint" id="metasHint"></span>
+          </summary>
+          <div class="metas">
+            <div>
+              <div class="meta-head">
+                <label for="temp" style="margin-bottom: 4px">Temperature</label>
+                <span class="meta-value" id="tempValue">1.0</span>
+              </div>
+              <input type="range" id="temp" min="0" max="2" step="0.05" value="1.0" />
+              <div class="meta-scale"><span>0 · focused</span><span>2 · wild</span></div>
+            </div>
+
+            <div>
+              <div class="meta-head">
+                <label for="topk" style="margin-bottom: 4px">Top-k</label>
+                <span class="meta-value" id="topkValue">5</span>
+              </div>
+              <input type="range" id="topk" min="1" max="20" step="1" value="5" />
+              <div class="meta-scale"><span>1 · greedy</span><span>20 · all shown</span></div>
+            </div>
+
+            <div>
+              <div class="meta-head">
+                <label for="topp" style="margin-bottom: 4px">Top-p</label>
+                <span class="meta-value" id="toppValue">1.00</span>
+              </div>
+              <input type="range" id="topp" min="0.1" max="1" step="0.05" value="1.0" />
+              <div class="meta-scale"><span>0.1 · narrow</span><span>1.0 · off</span></div>
+            </div>
+          </div>
+
+          <div class="prob-row">
+            <span class="prob-label">Show probability</span>
+            <div class="prob-toggle" role="group" aria-label="Probability display">
+              <button class="prob-tab" id="probEffective" title="After temperature / top-k / top-p">Effective</button>
+              <button class="prob-tab active" id="probRaw" title="The model's base probability, before adjustments">Raw</button>
+            </div>
+          </div>
+        </details>
+      </div>
+      </div><!-- /controls-col -->
+
+      <!-- RIGHT: candidate list -->
+      <div class="candidates-col">
+        <div class="candidates-head" id="candHead" style="display: none">
+          Candidates for the next token — click one to choose it
+        </div>
+        <div class="bars" id="bars"></div>
+      </div><!-- /candidates-col -->
+      </div><!-- /layout -->
+
+      <p class="footnote">
+        Text-completion model <code>gpt-3.5-turbo-instruct</code> (the
+        <code>/v1/completions</code> endpoint — it <em>continues</em> your text rather than
+        answering it) via a Netlify Function that hides the API key.
+        The function returns the model's <strong>true</strong> next-token probabilities
+        (<code>exp(logprob)</code> from the top 20 alternatives, at neutral temperature 1.0).
+        Temperature, top-k, and top-p then reshape and sample that distribution
+        <strong>entirely in your browser</strong> — so you watch the real probabilities transform.
+        Each bar shows a candidate's real probability; <strong>greyed-out</strong> rows are the ones
+        your top-k / top-p settings pull out of sampling (they still show their true probability).
+      </p>
+    </div>
+
+    <div class="tooltip" id="tooltip" role="tooltip"></div>
+
+    <script src="app.js"></script>
+  </body>
+</html>

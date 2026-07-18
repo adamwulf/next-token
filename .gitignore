@@ -1,2 +1,10 @@
-# Local Netlify folder
+# Never commit secrets
+.env
+.env.*
+
+# Local Netlify folder / state
 .netlify
+.netlify/
+
+# Node
+node_modules/

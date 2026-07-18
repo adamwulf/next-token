@@ -233,9 +233,11 @@
       <div class="bars" id="bars"></div>
 
       <p class="footnote">
-        Model <code>gpt-4o-mini</code> via a Netlify Function that hides the API key.
+        Text-completion model <code>gpt-3.5-turbo-instruct</code> (the
+        <code>/v1/completions</code> endpoint — it <em>continues</em> your text rather than
+        answering it) via a Netlify Function that hides the API key.
         The function returns the model's <strong>true</strong> next-token probabilities
-        (<code>exp(logprob)</code> from <code>top_logprobs=5</code>, at neutral temperature 1.0).
+        (<code>exp(logprob)</code> from the top 5 alternatives, at neutral temperature 1.0).
         Temperature, top-k, and top-p then reshape and sample that distribution
         <strong>entirely in your browser</strong> — so you watch the real probabilities transform.
         Greyed-out rows are candidates your top-k / top-p settings have ruled out.

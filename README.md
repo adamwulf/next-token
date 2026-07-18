@@ -50,20 +50,28 @@ Browser (index.html + app.js)
    │  POST /.netlify/functions/next-token  { prompt }
    ▼
 Netlify Function (next-token.mjs)  ← OPENAI_API_KEY lives here, never sent to the browser
-   │  calls OpenAI with model + logprobs + top_logprobs hard-coded, at neutral temperature 1.0
+   │  calls OpenAI with model + logprobs hard-coded, at neutral temperature 1.0
    ▼
-OpenAI Chat Completions API
+OpenAI Completions API  (/v1/completions)
 ```
 
 The function **hard-codes** everything except the prompt, so the endpoint can only ever run this demo:
 
-- `model: "gpt-4o-mini"`
+- `model: "gpt-3.5-turbo-instruct"` — a **text-completion** model (see below)
 - `max_tokens: 1` (we only need the next single token's distribution)
-- `logprobs: true`, `top_logprobs: 5` *(OpenAI caps `top_logprobs` at 5)*
+- `logprobs: 5` — the completions API returns the top-5 alternatives per token (`logprobs` is an integer count here, max 5)
 - `temperature: 1.0` — **neutral**, on purpose (see below)
 - prompt truncated to 500 chars
 
-It returns **only** the top-5 candidates `[{ token, logprob }, …]`, not a raw passthrough.
+It returns **only** the top-5 candidates `[{ token, logprob }, …]`, sorted high → low, not a raw passthrough. (The completions API gives `top_logprobs` as a `{ token: logprob }` object; the function normalizes it to this array so the front-end stays simple.)
+
+## Design decision: a completion model, not a chat model
+
+This is a **completions** demo — it uses the `/v1/completions` endpoint with `gpt-3.5-turbo-instruct`, a text-completion model that **continues** your text. So `The capital of France is` → ` Paris` (~81%), the intuitive next token.
+
+A **chat** model (`gpt-4o-mini`, `gpt-4o` via `/v1/chat/completions`) would instead treat the prompt as a *question to answer* and begin composing a reply — for `The capital of France is` its literal next token is `The` (as in "*The* capital of France is Paris"), which is correct chat behavior but the wrong story for a next-token-prediction demo. Completion models are the right tool here.
+
+*(Other completion-endpoint models if you want to experiment: `davinci-002` / `babbage-002` are raw base models — their distributions are flatter and less confident, e.g. ` Paris` at ~32% with more spread in the tail, which can make the temperature / top-k / top-p reshaping more visually dramatic. Swap `MODEL` in `next-token.mjs` to try them.)*
 
 ## Design decision: sampling is client-side
 

@@ -4,7 +4,7 @@ A small web demo for a screen-recorded teaching video (course demo **3.05a — T
 
 You type a prompt and see the model's **true** top next-token probabilities (up to 20 candidates) as a bar chart. Then the sampling **meta-parameters** — temperature, top-k, top-p — reshape that distribution live, and **Next token** samples one token from it, appends it, and predicts the next — building the text token by token. A breadcrumb of committed tokens lets you back out to any earlier point.
 
-One HTML page + one JS file talking to a single Netlify Function. The OpenAI API key lives **only** on the server and is never sent to the browser.
+One HTML page + one JS file talking to two small Netlify Functions (one for the next-token prediction, one for tokenizing the prompt). The OpenAI API key lives **only** on the server and is never sent to the browser.
 
 ## Features
 
@@ -49,7 +49,7 @@ export OPENAI_API_KEY="sk-...your key..."
 netlify dev
 ```
 
-Then open the URL Netlify prints (usually **http://localhost:8888**), type a prompt, and press **Predict**.
+Then open the URL Netlify prints (usually **http://localhost:8888**) and start typing a prompt — it predicts automatically. Click a candidate or press **Next token** to build the text.
 
 > `netlify dev` picks up `OPENAI_API_KEY` from your shell environment. If you prefer, put it in a `.env` file at the repo root (`OPENAI_API_KEY=sk-...`) — `netlify dev` loads that automatically. **Do not commit your key** (`.env` is git-ignored).
 
@@ -95,7 +95,9 @@ The math, in `app.js` → `shapeDistribution()`:
 - **Temperature** — `softmax(logprob / T)`. As `T → 0` it becomes greedy (argmax); larger `T` flattens the distribution.
 - **Top-k** — keep only the `k` highest-probability candidates.
 - **Top-p (nucleus)** — keep the smallest set of candidates whose cumulative probability reaches `p`.
-- **What the bars show vs. what's sampled.** The bars always show each candidate's **raw, true** probability — the temperature-reshaped softmax over **all** candidates (it sums to 1 across the whole list and is *not* renormalized when top-k/top-p exclude rows). So an excluded candidate still shows its real probability; it's just **faded** to signal it was pulled out of sampling. Internally, **Next token** samples from the kept rows renormalized to 1 (`sampleProb`) — it never picks a faded row — but that renormalization never changes the numbers on screen.
+- **What the bars show vs. what's sampled** — two probabilities per candidate, chosen by the Raw / Effective toggle (see the Features section):
+  - `prob` (**Raw**) — the temperature-reshaped softmax over **all** candidates. Sums to 1 across the whole list; top-k/top-p only fade rows, they don't change it.
+  - `sampleProb` (**Effective**) — `prob` renormalized over just the kept (non-faded) rows; 0 for excluded. This is what **Next token** samples from — it never picks a faded row, no matter which mode is displayed.
 
 *(Note: top-k maxes at 20 because the completions endpoint returns at most 20 exact candidates. The slider defaults to 5.)*
 
@@ -120,13 +122,39 @@ In both cases the demo commits the `⟨end of text⟩` token to the breadcrumb a
 
 (We can't "predict past" the stop token exactly: doing so requires appending the real end-of-text **token id**, but OpenAI never exposes token ids for this model and no offline tokenizer matches its vocabulary exactly — so we treat end-of-text as a terminal state rather than guessing ids.)
 
-## Deploying publicly (optional — TODO, deferred)
+## Deploying to Netlify
 
-The local `netlify dev` workflow above is the recommended way to record the video — nothing is on the internet, so there's no abuse surface.
+For just recording the video, the local `netlify dev` workflow above is enough — nothing is on the internet, so there's no abuse surface. But if you want a live URL students can use, here's how, including where the API key goes.
 
-If this is ever deployed publicly so students can play with it, add these first:
+There's **no build step** — `netlify.toml` already points `publish` at the repo root and `functions` at `netlify/functions`, so Netlify just serves the static files and the two functions.
 
-1. **OpenAI spend cap** — set a low monthly usage limit on the project key. This is the real backstop; even if the public function URL is abused, damage is bounded.
-2. **Per-IP rate limiting** — Netlify has built-in rate limiting you can put on the function so no single visitor can hammer it.
+### Option A — deploy from Git (simplest, auto-deploys on push)
 
-(Neither is implemented here, since the demo runs locally.)
+1. Push this repo to GitHub/GitLab (the `.gitignore` keeps `.env` and your key out).
+2. In Netlify: **Add new site → Import an existing project**, pick the repo. Leave the build command empty and publish directory as `.` (Netlify reads `netlify.toml`).
+3. **Add the API key** (this is the important part): **Site configuration → Environment variables → Add a variable**
+   - Key: `OPENAI_API_KEY`
+   - Value: `sk-…your key…`
+   - Scopes: **Functions** (Production, and Deploy Previews if you want).
+   Then **Deploy** (or trigger a redeploy so the functions pick up the variable).
+4. Open the site URL — the functions read `process.env.OPENAI_API_KEY`, and the key is never sent to the browser.
+
+### Option B — deploy from the CLI
+
+```bash
+netlify login                       # once
+netlify init                        # link this folder to a new/existing Netlify site
+netlify env:set OPENAI_API_KEY "sk-...your key..."   # sets it on the site (server-side)
+netlify deploy --prod               # build-free deploy of the page + functions
+```
+
+`netlify env:set` stores the key on Netlify (encrypted), the same place the dashboard writes it — so `netlify dev` locally and the deployed functions both find it. (You can also `netlify env:import .env`.)
+
+### Before you make it public
+
+The function endpoints (`/.netlify/functions/next-token`, `/tokenize`) are public URLs — anyone who opens the page can call them and spend your OpenAI credits (they still can't see the key). Add these first:
+
+1. **OpenAI spend cap** — set a low monthly usage limit on the project key at platform.openai.com. This is the real backstop; even if the URL is abused, damage is bounded. **Do this before deploying publicly.**
+2. **Per-IP rate limiting** — Netlify has built-in [rate limiting](https://docs.netlify.com/platform/rate-limiting/) you can put on the functions so no single visitor can hammer them.
+
+(Neither is implemented in the code — they're Netlify/OpenAI settings you turn on for a public deploy. Each call is already tiny: `max_tokens: 1`, prompt capped at 500 chars.)

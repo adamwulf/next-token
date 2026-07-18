@@ -1,0 +1,11 @@
+# Netlify config for the next-token-prediction demo.
+# Serves the static page from the repo root and the function from
+# netlify/functions. No build step — plain HTML/JS/CSS.
+
+[build]
+  publish = "."
+  functions = "netlify/functions"
+
+[dev]
+  # `netlify dev` serves the static files and the function together on one port.
+  publish = "."

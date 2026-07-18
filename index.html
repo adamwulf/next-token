@@ -1,0 +1,247 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Next-Token Prediction</title>
+    <style>
+      :root {
+        --bg: #0f1115;
+        --panel: #1a1e27;
+        --panel-2: #232936;
+        --text: #f2f5fa;
+        --muted: #9aa5b8;
+        --accent: #4da3ff;
+        --chosen: #ffd166;
+        --bar-bg: #2b3242;
+        --border: #2e3646;
+        --danger: #ff6b6b;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--text);
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+        font-size: 20px;
+        line-height: 1.4;
+        -webkit-font-smoothing: antialiased;
+      }
+      .wrap { max-width: 960px; margin: 0 auto; padding: 32px 28px 70px; }
+      h1 { font-size: 40px; margin: 0 0 4px; letter-spacing: -0.5px; }
+      .subtitle { color: var(--muted); font-size: 20px; margin: 0 0 26px; }
+
+      .panel {
+        background: var(--panel);
+        border: 1px solid var(--border);
+        border-radius: 14px;
+        padding: 22px;
+        margin-bottom: 22px;
+      }
+      label {
+        display: block;
+        font-size: 15px;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+        color: var(--muted);
+        margin-bottom: 8px;
+      }
+
+      .prompt-head { display: flex; justify-content: space-between; align-items: baseline; }
+      .counter { font-variant-numeric: tabular-nums; font-size: 15px; color: var(--muted); }
+      .counter.limit { color: var(--danger); }
+      textarea {
+        width: 100%;
+        min-height: 74px;
+        resize: vertical;
+        background: var(--panel-2);
+        color: var(--text);
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        padding: 14px 16px;
+        font-size: 22px;
+        font-family: inherit;
+        line-height: 1.4;
+      }
+      textarea:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+      /* Committed-token breadcrumb */
+      .committed-wrap { margin-top: 16px; }
+      .committed { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+      .committed-empty { color: var(--muted); font-style: italic; font-size: 16px; }
+      .chip {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        background: var(--panel-2);
+        border: 1px solid var(--chosen);
+        color: var(--chosen);
+        border-radius: 8px;
+        padding: 6px 8px 6px 12px;
+        font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+        font-size: 19px;
+        white-space: pre;
+      }
+      .chip .x {
+        cursor: pointer;
+        border: none;
+        background: transparent;
+        color: var(--muted);
+        font-size: 20px;
+        line-height: 1;
+        padding: 0 2px;
+        font-family: inherit;
+      }
+      .chip .x:hover { color: var(--danger); }
+      .ws { color: var(--muted); opacity: 0.6; }
+
+      /* Meta-parameter sliders */
+      .metas { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 22px; }
+      .meta-head { display: flex; justify-content: space-between; align-items: baseline; }
+      .meta-value { font-variant-numeric: tabular-nums; font-size: 22px; font-weight: 700; color: var(--chosen); }
+      input[type="range"] { width: 100%; accent-color: var(--accent); height: 28px; }
+      .meta-scale { display: flex; justify-content: space-between; color: var(--muted); font-size: 13px; margin-top: -4px; }
+
+      /* Buttons */
+      .buttons { display: flex; gap: 12px; flex-wrap: wrap; margin-top: 20px; }
+      button {
+        font-size: 20px;
+        font-weight: 600;
+        font-family: inherit;
+        padding: 14px 22px;
+        border-radius: 10px;
+        border: 1px solid var(--border);
+        background: var(--panel-2);
+        color: var(--text);
+        cursor: pointer;
+      }
+      button:hover:not(:disabled) { background: #2c3444; }
+      button.primary { background: var(--accent); border-color: var(--accent); color: #06121f; }
+      button.primary:hover:not(:disabled) { background: #6bb4ff; }
+      button:disabled { opacity: 0.45; cursor: not-allowed; }
+
+      .status { min-height: 24px; margin: 4px 2px 18px; color: var(--muted); font-size: 17px; }
+      .status.error { color: var(--danger); }
+
+      /* Candidate list */
+      .candidates-head {
+        font-size: 15px;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+        color: var(--muted);
+        margin: 2px 2px 14px;
+      }
+      .bars { display: flex; flex-direction: column; gap: 12px; }
+      .bar-row { display: grid; grid-template-columns: 190px 1fr 92px; align-items: center; gap: 16px; }
+      .tok {
+        font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+        font-size: 22px;
+        text-align: right;
+        white-space: pre;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        background: var(--panel-2);
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        padding: 8px 12px;
+      }
+      .bar-row.excluded .tok { opacity: 0.4; }
+      .bar-row.excluded .fill { opacity: 0.25; }
+      .track { background: var(--bar-bg); border-radius: 8px; height: 34px; overflow: hidden; }
+      .fill {
+        height: 100%;
+        border-radius: 8px 0 0 8px;
+        background: linear-gradient(90deg, #3a72c9, var(--accent));
+        transition: width 0.35s ease;
+        min-width: 2px;
+      }
+      .pct { font-variant-numeric: tabular-nums; font-size: 22px; font-weight: 700; text-align: right; }
+      .pct.excluded { color: var(--muted); }
+
+      .footnote { margin-top: 30px; color: var(--muted); font-size: 15px; line-height: 1.6; }
+      .footnote code { background: var(--panel-2); padding: 2px 6px; border-radius: 5px; font-size: 14px; }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <h1>Next-Token Prediction</h1>
+      <p class="subtitle">
+        See the model's real next-token probabilities — then reshape them with
+        temperature, top-k, and top-p, and build the text one token at a time.
+      </p>
+
+      <!-- Prompt + committed-token breadcrumb -->
+      <div class="panel">
+        <div class="prompt-head">
+          <label for="prompt">Prompt</label>
+          <span class="counter" id="counter">0 / 500</span>
+        </div>
+        <textarea id="prompt" maxlength="500" spellcheck="false">The capital of France is</textarea>
+
+        <div class="committed-wrap">
+          <label>Tokens chosen so far <span style="text-transform: none; letter-spacing: 0">(click ✕ to back out)</span></label>
+          <div class="committed" id="committed">
+            <span class="committed-empty">None yet — press Predict, then Next token.</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Sampling meta-parameters -->
+      <div class="panel">
+        <label style="margin-bottom: 16px">Sampling meta-parameters</label>
+        <div class="metas">
+          <div>
+            <div class="meta-head">
+              <label for="temp" style="margin-bottom: 4px">Temperature</label>
+              <span class="meta-value" id="tempValue">1.0</span>
+            </div>
+            <input type="range" id="temp" min="0" max="2" step="0.05" value="1.0" />
+            <div class="meta-scale"><span>0 · focused</span><span>2 · wild</span></div>
+          </div>
+
+          <div>
+            <div class="meta-head">
+              <label for="topk" style="margin-bottom: 4px">Top-k</label>
+              <span class="meta-value" id="topkValue">5</span>
+            </div>
+            <input type="range" id="topk" min="1" max="5" step="1" value="5" />
+            <div class="meta-scale"><span>1 · greedy</span><span>5 · all shown</span></div>
+          </div>
+
+          <div>
+            <div class="meta-head">
+              <label for="topp" style="margin-bottom: 4px">Top-p</label>
+              <span class="meta-value" id="toppValue">1.00</span>
+            </div>
+            <input type="range" id="topp" min="0.1" max="1" step="0.05" value="1.0" />
+            <div class="meta-scale"><span>0.1 · narrow</span><span>1.0 · off</span></div>
+          </div>
+        </div>
+
+        <div class="buttons">
+          <button class="primary" id="predictBtn">Predict</button>
+          <button id="nextBtn" disabled>Next token →</button>
+          <button id="resetBtn">Reset</button>
+        </div>
+      </div>
+
+      <div class="status" id="status"></div>
+
+      <div class="candidates-head" id="candHead" style="display: none">
+        Candidates for the next token — reshaped by your meta-parameters
+      </div>
+      <div class="bars" id="bars"></div>
+
+      <p class="footnote">
+        Model <code>gpt-4o-mini</code> via a Netlify Function that hides the API key.
+        The function returns the model's <strong>true</strong> next-token probabilities
+        (<code>exp(logprob)</code> from <code>top_logprobs=5</code>, at neutral temperature 1.0).
+        Temperature, top-k, and top-p then reshape and sample that distribution
+        <strong>entirely in your browser</strong> — so you watch the real probabilities transform.
+        Greyed-out rows are candidates your top-k / top-p settings have ruled out.
+      </p>
+    </div>
+
+    <script src="app.js"></script>
+  </body>
+</html>

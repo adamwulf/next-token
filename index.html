@@ -151,27 +151,27 @@
       .ws { color: var(--muted); opacity: 0.6; }
 
       /* Collapsible meta-parameters */
-      .metas-details { }
       .metas-summary {
         list-style: none;
         cursor: pointer;
         display: flex;
         align-items: center;
-        gap: 12px;
+        gap: 10px;
         user-select: none;
       }
       .metas-summary::-webkit-details-marker { display: none; }
+      /* Leading triangle shows collapse state (and that the header is clickable). */
+      .metas-marker { color: var(--muted); font-size: 12px; width: 12px; }
+      .metas-summary:hover .metas-marker { color: var(--text); }
+      .metas-marker::before { content: "\25B6"; } /* ▶ collapsed */
+      .metas-details[open] .metas-marker::before { content: "\25BC"; } /* ▼ expanded */
+      .metas-summary:hover .metas-title { color: var(--text); }
       .metas-title {
         font-size: 15px; text-transform: uppercase; letter-spacing: 1px; color: var(--muted);
       }
       .metas-hint {
         font-size: 15px; color: var(--muted); font-variant-numeric: tabular-nums;
       }
-      .metas-chevron {
-        margin-left: auto; color: var(--muted); font-size: 16px;
-        transition: transform 0.15s ease;
-      }
-      .metas-details[open] .metas-chevron { transform: rotate(90deg); }
       /* Hide the inline value hint when expanded (the sliders show the values). */
       .metas-details[open] .metas-hint { display: none; }
 
@@ -284,11 +284,11 @@
 
       <!-- Sampling meta-parameters (collapsible) -->
       <div class="panel">
-        <details class="metas-details" id="metasDetails" open>
+        <details class="metas-details" id="metasDetails">
           <summary class="metas-summary">
+            <span class="metas-marker" aria-hidden="true"></span>
             <span class="metas-title">Sampling meta-parameters</span>
             <span class="metas-hint" id="metasHint"></span>
-            <span class="metas-chevron">▸</span>
           </summary>
           <div class="metas">
             <div>

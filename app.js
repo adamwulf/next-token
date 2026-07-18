@@ -157,29 +157,35 @@ async function commitCandidate(token) {
 // breadcrumb can colour "took the obvious path" differently from "picked a
 // less-likely token" (which is what temperature / top-k / top-p enable).
 async function commitToken(token) {
-  const wasTop = token === topCandidateToken();
+  const stats = tokenStats(token); // { rank, prob, wasTop } from the base distribution
 
   // If the chosen token is end-of-text, the sequence is complete: commit it as
   // the stop token and finish, rather than trying to predict past it.
   if (token === EOT) {
     finish(
-      { wasTop },
+      stats,
       `You chose <strong>${EOT_LABEL}</strong> — the end-of-text token. That completes the text, so prediction stops here. Press <strong>Reset</strong> to start over.`,
       "Finished — end-of-text was chosen."
     );
     return;
   }
 
-  committed.push({ token, wasTop });
+  committed.push({ token, ...stats });
   renderCommitted();
   await fetchCandidates();
 }
 
-// The model's single most-probable next token (argmax of the base distribution),
-// independent of the sampling meta-parameters. null if we haven't predicted yet.
-function topCandidateToken() {
-  if (!baseCandidates || baseCandidates.length === 0) return null;
-  return baseCandidates.reduce((best, c) => (c.logprob > best.logprob ? c : best)).token;
+// Where `token` fell in the model's TRUE next-token distribution at the moment
+// it was chosen: its 1-based rank and its probability (softmax over the top-5
+// base logprobs — the same numbers the bars show at neutral settings). Used for
+// the breadcrumb colour and the per-chip hover tooltip.
+function tokenStats(token) {
+  if (!baseCandidates || baseCandidates.length === 0) return { rank: null, prob: null, wasTop: false };
+  const sorted = [...baseCandidates].sort((a, b) => b.logprob - a.logprob);
+  const total = sorted.reduce((s, c) => s + Math.exp(c.logprob), 0);
+  const idx = sorted.findIndex((c) => c.token === token);
+  if (idx === -1) return { rank: null, prob: null, wasTop: false };
+  return { rank: idx + 1, prob: Math.exp(sorted[idx].logprob) / total, wasTop: idx === 0 };
 }
 
 // Truncate the committed sequence back to `keep` tokens, then re-predict from
@@ -252,8 +258,10 @@ async function fetchCandidates() {
     // API returned no distribution. Enter the finished state — show the stop
     // token and stop predicting.
     if (data.finished || !Array.isArray(data.candidates) || data.candidates.length === 0) {
+      // The API returns no distribution at a hard stop, so we have no probability
+      // for end-of-text — but the model chose it, so it's effectively rank 1.
       finish(
-        { wasTop: true },
+        { wasTop: true, rank: 1, prob: null },
         `The model predicted <strong>${EOT_LABEL}</strong> — it considers the text complete, so prediction stops here. Press <strong>Reset</strong> to start over.`,
         "Finished — the model reached the end of the text."
       );
@@ -416,15 +424,23 @@ function renderCommitted() {
     // whether this was the model's most-probable token (a "non-top" chip is the
     // teaching moment: the model didn't take the obvious path).
     chip.className = "chip" + (c.eot ? " eot" : c.wasTop ? " top" : " nontop");
-    chip.title = c.eot
-      ? "End-of-text — the model completed the text here"
-      : c.wasTop
-      ? "The model's most-probable token"
-      : "NOT the most-probable token — a less-likely choice";
+    chip.title = committedTooltip(c);
     chip.innerHTML = `<span>${tokenHtml(c.token)}</span><button class="x" title="Back out to here" aria-label="Remove this token and everything after it">✕</button>`;
     chip.querySelector(".x").addEventListener("click", () => backOutTo(i));
     els.committed.appendChild(chip);
   });
+}
+
+// Hover text for a committed token: where it ranked in the model's true
+// next-token distribution and its probability at the moment it was chosen.
+function committedTooltip(c) {
+  const parts = [];
+  if (c.rank != null) {
+    parts.push(c.wasTop ? `Rank 1 (the model's top choice)` : `Rank ${c.rank} of 5 — a less-likely choice`);
+  }
+  if (c.prob != null) parts.push(`${(c.prob * 100).toFixed(1)}% probability`);
+  if (c.eot) parts.push("end-of-text — the model completed the text here");
+  return parts.length ? parts.join(" · ") : "chosen token";
 }
 
 // ---- token view (how the typed prompt splits into tokens) ----

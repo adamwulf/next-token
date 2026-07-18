@@ -32,7 +32,7 @@
       /* Two columns on wide screens: controls on the left, candidates on the
          right so the (up to 20) candidate bars get the full viewport height.
          Stacks to one column on narrower screens. */
-      .layout { display: grid; grid-template-columns: minmax(380px, 40%) 1fr; gap: 26px; align-items: start; }
+      .layout { display: grid; grid-template-columns: minmax(380px, 41%) 1fr; gap: 26px; align-items: start; }
       .candidates-col { position: sticky; top: 20px; }
       @media (max-width: 900px) {
         .layout { grid-template-columns: 1fr; }
@@ -270,6 +270,32 @@
         color: var(--muted);
         margin: 2px 2px 14px;
       }
+      /* Effective / Raw probability toggle (inside the meta-params area) */
+      .prob-row { display: flex; align-items: center; gap: 12px; margin-top: 12px; }
+      .prob-row .prob-label {
+        font-size: 15px; text-transform: uppercase; letter-spacing: 1px; color: var(--muted);
+      }
+      .prob-toggle {
+        display: inline-flex;
+        background: var(--panel-2);
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        padding: 2px;
+        flex: none;
+      }
+      .prob-tab {
+        font-size: 14px;
+        font-family: inherit;
+        color: var(--muted);
+        background: transparent;
+        border: none;
+        border-radius: 6px;
+        padding: 5px 12px;
+        cursor: pointer;
+        white-space: nowrap;
+      }
+      .prob-tab:hover { color: var(--text); }
+      .prob-tab.active { background: var(--accent); color: #06121f; font-weight: 600; }
       .bars { display: flex; flex-direction: column; gap: 12px; }
       .bar-row { display: grid; grid-template-columns: 230px 1fr 92px; align-items: center; gap: 16px; border-radius: 8px; }
       .bar-row.clickable { cursor: pointer; }
@@ -389,6 +415,14 @@
               </div>
               <input type="range" id="topp" min="0.1" max="1" step="0.05" value="1.0" />
               <div class="meta-scale"><span>0.1 · narrow</span><span>1.0 · off</span></div>
+            </div>
+          </div>
+
+          <div class="prob-row">
+            <span class="prob-label">Show probability</span>
+            <div class="prob-toggle" role="group" aria-label="Probability display">
+              <button class="prob-tab" id="probEffective" title="After temperature / top-k / top-p">Effective</button>
+              <button class="prob-tab active" id="probRaw" title="The model's base probability, before adjustments">Raw</button>
             </div>
           </div>
         </details>

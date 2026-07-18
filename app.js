@@ -39,6 +39,8 @@ const els = {
   topkValue: document.getElementById("topkValue"),
   toppValue: document.getElementById("toppValue"),
   metasHint: document.getElementById("metasHint"),
+  probEffective: document.getElementById("probEffective"),
+  probRaw: document.getElementById("probRaw"),
   nextBtn: document.getElementById("nextBtn"),
   resetBtn: document.getElementById("resetBtn"),
   status: document.getElementById("status"),
@@ -54,6 +56,10 @@ let lastTokenCount = 0; // number of prompt tokens (shown by the counter on the 
 let baseCandidates = null; // [{ token, logprob }] for the CURRENT position, from the API
 let finished = false; // true once end-of-text is reached — no more predictions
 let busy = false;
+// Which probability the bars + tooltips show:
+//   "raw"       — the model's base probability, before any adjustment (default)
+//   "effective" — after temperature / top-k / top-p (the actual sampling prob)
+let probMode = "raw";
 
 // Debounce timers + request-id guards. Declared here (not next to their
 // functions) so the on-load tokenizePrompt()/predictFromState() calls can access
@@ -116,6 +122,10 @@ els.resetBtn.addEventListener("click", () => reset());
 els.tabPrompt.addEventListener("click", () => showTab("prompt"));
 els.tabTokens.addEventListener("click", () => showTab("tokens"));
 
+// Effective / Raw probability toggle — affects the bars AND the chip tooltips.
+els.probEffective.addEventListener("click", () => setProbMode("effective"));
+els.probRaw.addEventListener("click", () => setProbMode("raw"));
+
 updateCounter();
 tokenizePrompt(); // show the token split for the pre-filled prompt on load
 predictFromState(); // and predict its next token right away
@@ -135,6 +145,16 @@ function showTab(which) {
   updateCounter(); // swap char count <-> token count
   if (tokens) tokenizePrompt();
   else els.prompt.focus();
+}
+
+// Switch the probability shown by the bars and tooltips between "effective"
+// (after temperature / top-k / top-p) and "raw" (the model's base probability).
+function setProbMode(mode) {
+  probMode = mode;
+  const raw = mode === "raw";
+  els.probRaw.classList.toggle("active", raw);
+  els.probEffective.classList.toggle("active", !raw);
+  rerenderCandidates(); // the tooltips read probMode live, so no re-render needed there
 }
 
 // ---- main actions ----
@@ -204,16 +224,22 @@ async function commitToken(token) {
 }
 
 // Where `token` fell in the candidate list at the moment it was chosen: its
-// 1-based rank, the number of candidates, and its DISPLAYED probability (`prob`
-// — the raw, temperature-shaped value shown on the bar, NOT the renormalized
-// sampleProb). Used for the breadcrumb colour and the per-chip hover tooltip, so
-// the tooltip matches exactly what the bar showed.
+// 1-based rank, the number of candidates, and both the "raw" probability
+// (temperature-reshaped, pre top-k/top-p) and the "effective" probability (after
+// top-k/top-p renormalization). The tooltip shows whichever the toggle selects.
 function tokenStats(token) {
-  if (!baseCandidates || baseCandidates.length === 0) return { rank: null, of: null, prob: null, wasTop: false };
-  const rows = shapeDistribution(baseCandidates, metaParams()); // sorted high -> low, prob = displayed
+  if (!baseCandidates || baseCandidates.length === 0)
+    return { rank: null, of: null, rawProb: null, effProb: null, wasTop: false };
+  const rows = shapeDistribution(baseCandidates, metaParams()); // sorted high -> low
   const idx = rows.findIndex((r) => r.token === token);
-  if (idx === -1) return { rank: null, of: rows.length, prob: null, wasTop: false };
-  return { rank: idx + 1, of: rows.length, prob: rows[idx].prob, wasTop: idx === 0 };
+  if (idx === -1) return { rank: null, of: rows.length, rawProb: null, effProb: null, wasTop: false };
+  return {
+    rank: idx + 1,
+    of: rows.length,
+    rawProb: rows[idx].prob, // temperature-reshaped, before top-k/top-p
+    effProb: rows[idx].sampleProb, // after top-k/top-p renormalization
+    wasTop: idx === 0,
+  };
 }
 
 // Truncate the committed sequence back to `keep` tokens, then re-predict from
@@ -289,7 +315,7 @@ async function fetchCandidates() {
       // The API returns no distribution at a hard stop, so we have no probability
       // for end-of-text — but the model chose it, so it's effectively rank 1.
       finish(
-        { wasTop: true, rank: 1, prob: null },
+        { wasTop: true, rank: 1, rawProb: null, effProb: null },
         `The model predicted <strong>${EOT_LABEL}</strong> — it considers the text complete, so prediction stops here. Press <strong>Reset</strong> to start over.`,
         "Finished — the model reached the end of the text."
       );
@@ -359,11 +385,9 @@ function shapeDistribution(candidates, { temperature, topk, topp }) {
     weights = exps.map((e) => e / sum);
   }
 
-  // Attach and sort high -> low. `prob` is the DISPLAYED probability — the
-  // temperature-reshaped weight over ALL candidates (it always sums to 1 across
-  // the full list, and is NOT renormalized when top-k/top-p exclude rows). So
-  // every row always shows its true (temperature-adjusted) probability; the
-  // top-k/top-p cuts only FADE rows, they don't change the numbers shown.
+  // `prob` is the temperature-reshaped weight over ALL candidates (the "raw"
+  // display value — temperature affects it, but top-k/top-p don't). `sampleProb`
+  // (computed below) is the "effective" value, renormalized over the kept rows.
   let rows = candidates.map((c, i) => ({ token: c.token, prob: weights[i], excluded: false }));
   rows.sort((a, b) => b.prob - a.prob);
 
@@ -419,25 +443,38 @@ function randomUnit() {
 
 // ---- rendering ----
 
+// The probability shown for a row, per the current toggle:
+//   raw       — temperature-reshaped, over ALL candidates, NOT renormalized by
+//               top-k / top-p (temperature affects it; the cuts only FADE rows).
+//   effective — after temperature AND top-k / top-p, renormalized over the kept
+//               candidates (the actual sampling distribution; excluded = 0%).
+function displayProb(row) {
+  return probMode === "raw" ? row.prob : row.sampleProb;
+}
+
 function rerenderCandidates() {
   if (!baseCandidates) return;
   const rows = shapeDistribution(baseCandidates, metaParams());
-  const maxProb = rows.reduce((m, r) => Math.max(m, r.prob), 0) || 1;
+  const maxProb = rows.reduce((m, r) => Math.max(m, displayProb(r)), 0) || 1;
 
   els.candHead.style.display = "block";
   els.bars.innerHTML = "";
   for (const row of rows) {
-    const widthPct = (row.prob / maxProb) * 100;
-    const clickable = !row.excluded; // excluded (top-k/top-p ruled out) can't be chosen
+    // top-k / top-p exclusions fade + disable the row in BOTH modes — sampling
+    // always uses the effective set. The Raw/Effective toggle only changes which
+    // probability number is shown, not what's ruled out.
+    const excluded = row.excluded;
+    const p = displayProb(row);
+    const widthPct = (p / maxProb) * 100;
     const rowEl = document.createElement("div");
     rowEl.className =
-      "bar-row" + (row.excluded ? " excluded" : "") + (clickable ? " clickable" : "");
+      "bar-row" + (excluded ? " excluded" : "") + (!excluded ? " clickable" : "");
     rowEl.innerHTML = `
       <div class="tok">${tokenHtml(row.token)}</div>
       <div class="track"><div class="fill" style="width:${widthPct.toFixed(1)}%"></div></div>
-      <div class="pct ${row.excluded ? "excluded" : ""}">${(row.prob * 100).toFixed(1)}%</div>
+      <div class="pct ${excluded ? "excluded" : ""}">${(p * 100).toFixed(1)}%</div>
     `;
-    if (clickable) {
+    if (!excluded) {
       rowEl.title = "Click to choose this token";
       rowEl.addEventListener("click", () => commitCandidate(row.token));
     }
@@ -477,9 +514,12 @@ function tooltipHtml(c) {
     : c.wasTop
     ? `<div class="tt-rank">Rank 1 — the model's top choice</div>`
     : `<div class="tt-rank">Rank ${c.rank}${c.of ? ` of ${c.of}` : ""} — a less-likely choice</div>`;
-  const probLine = c.prob == null
+  // Show whichever probability the Raw/Effective toggle currently selects.
+  const p = probMode === "raw" ? c.rawProb : c.effProb;
+  const label = probMode === "raw" ? "raw probability" : "effective probability";
+  const probLine = p == null
     ? ""
-    : `<div><span class="tt-prob ${kind}">${(c.prob * 100).toFixed(2)}%</span> probability</div>`;
+    : `<div><span class="tt-prob ${kind}">${(p * 100).toFixed(2)}%</span> ${label}</div>`;
   const eotLine = c.eot ? `<div class="tt-rank">end-of-text — the model completed the text here</div>` : "";
   return `<div class="tt-token">${tokenHtml(c.token)}</div>${rankLine}${probLine}${eotLine}`;
 }

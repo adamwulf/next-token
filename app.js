@@ -298,10 +298,12 @@ async function fetchCandidates() {
     baseCandidates = data.candidates;
     rerenderCandidates();
     els.nextBtn.disabled = false;
+    // The candidate list header already explains what to do; keep the status
+    // line to just the committed count (or empty at the start).
     setStatus(
       committed.length
-        ? `${committed.length} token${committed.length === 1 ? "" : "s"} committed. Click a word or press “Next token” to keep going.`
-        : "Here are the model's true next-token probabilities. Click a word to choose it, or press “Next token” to sample one."
+        ? `${committed.length} token${committed.length === 1 ? "" : "s"} committed.`
+        : ""
     );
   } catch (err) {
     if (reqId === predictReqId) setStatus(err.message, true);

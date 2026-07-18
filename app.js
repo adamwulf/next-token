@@ -18,6 +18,7 @@
 //      committed tokens).
 
 const DEFAULTS = { temp: 1.0, topk: 5, topp: 1.0 };
+const DEFAULT_PROMPT = "The capital of France is"; // Reset restores this
 
 const els = {
   prompt: document.getElementById("prompt"),
@@ -41,7 +42,7 @@ const els = {
 
 // State
 let seed = ""; // the prompt text at the time of the first Predict
-let committed = []; // token strings the user has committed, in order
+let committed = []; // [{ token, wasTop }] committed so far, in order
 let baseCandidates = null; // [{ token, logprob }] for the CURRENT position, from the API
 let busy = false;
 
@@ -88,12 +89,11 @@ tokenizePrompt(); // show the token split for the pre-filled prompt on load
 
 // ---- main actions ----
 
-// Predict from the current prompt box: begin a fresh sequence and fetch the
-// candidates for the first next-token position.
+// Predict from the current prompt box. Keeps any tokens already chosen (Predict
+// re-reads the prompt as the new seed but does NOT clear the breadcrumb), and
+// fetches the candidates for the next position after (prompt + committed).
 async function startFresh() {
   seed = els.prompt.value;
-  committed = [];
-  renderCommitted();
   await fetchCandidates();
 }
 
@@ -118,11 +118,22 @@ async function commitCandidate(token) {
 }
 
 // Append `token` to the committed sequence and re-predict, so the candidate
-// list always reflects (prompt + committed tokens).
+// list always reflects (prompt + committed tokens). We record whether it was
+// the model's top (most-probable) candidate at the moment it was chosen, so the
+// breadcrumb can colour "took the obvious path" differently from "picked a
+// less-likely token" (which is what temperature / top-k / top-p enable).
 async function commitToken(token) {
-  committed.push(token);
+  const wasTop = token === topCandidateToken();
+  committed.push({ token, wasTop });
   renderCommitted();
   await fetchCandidates();
+}
+
+// The model's single most-probable next token (argmax of the base distribution),
+// independent of the sampling meta-parameters. null if we haven't predicted yet.
+function topCandidateToken() {
+  if (!baseCandidates || baseCandidates.length === 0) return null;
+  return baseCandidates.reduce((best, c) => (c.logprob > best.logprob ? c : best)).token;
 }
 
 // Truncate the committed sequence back to `keep` tokens, then re-predict from
@@ -139,7 +150,7 @@ function reset() {
   seed = "";
   committed = [];
   baseCandidates = null;
-  els.prompt.value = "";
+  els.prompt.value = DEFAULT_PROMPT; // restore the default prompt, not blank
   els.temp.value = DEFAULTS.temp;
   els.topk.value = DEFAULTS.topk;
   els.topp.value = DEFAULTS.topp;
@@ -151,14 +162,13 @@ function reset() {
   els.nextBtn.disabled = true;
   renderCommitted();
   updateCounter();
-  renderTokens([]); // prompt is now empty
-  tokenizeReqId++; // cancel any in-flight tokenize response
+  tokenizePrompt(); // re-tokenize the restored default prompt
   setStatus("");
 }
 
 // Fetch the base top-5 candidates for the current position (seed + committed).
 async function fetchCandidates() {
-  const currentText = seed + committed.join("");
+  const currentText = seed + committed.map((c) => c.token).join("");
   if (!currentText.trim()) {
     setStatus("Type a prompt first.", true);
     return;
@@ -311,10 +321,15 @@ function renderCommitted() {
     return;
   }
   els.committed.innerHTML = "";
-  committed.forEach((tok, i) => {
+  committed.forEach((c, i) => {
     const chip = document.createElement("span");
-    chip.className = "chip";
-    chip.innerHTML = `<span>${tokenHtml(tok)}</span><button class="x" title="Back out to here" aria-label="Remove this token and everything after it">✕</button>`;
+    // Colour by whether this was the model's most-probable token. A "non-top"
+    // chip is the teaching moment: the model didn't take the obvious path.
+    chip.className = "chip" + (c.wasTop ? " top" : " nontop");
+    chip.title = c.wasTop
+      ? "The model's most-probable token"
+      : "NOT the most-probable token — a less-likely choice";
+    chip.innerHTML = `<span>${tokenHtml(c.token)}</span><button class="x" title="Back out to here" aria-label="Remove this token and everything after it">✕</button>`;
     chip.querySelector(".x").addEventListener("click", () => backOutTo(i));
     els.committed.appendChild(chip);
   });

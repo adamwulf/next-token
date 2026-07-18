@@ -13,6 +13,7 @@
         --muted: #9aa5b8;
         --accent: #4da3ff;
         --chosen: #ffd166;
+        --nontop: #e06cff;
         --bar-bg: #2b3242;
         --border: #2e3646;
         --danger: #ff6b6b;
@@ -105,14 +106,24 @@
         align-items: center;
         gap: 8px;
         background: var(--panel-2);
-        border: 1px solid var(--chosen);
-        color: var(--chosen);
+        border: 1px solid var(--border);
         border-radius: 8px;
         padding: 6px 8px 6px 12px;
         font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
         font-size: 19px;
         white-space: pre;
       }
+      /* Gold = the model's most-probable token; magenta = a less-likely pick
+         (the teaching moment: the model didn't take the obvious path). */
+      .chip.top { border-color: var(--chosen); color: var(--chosen); }
+      .chip.nontop { border-color: var(--nontop); color: var(--nontop); }
+      .legend {
+        text-transform: none; letter-spacing: 0; font-size: 14px; color: var(--muted);
+        display: inline-flex; align-items: center; gap: 5px; margin-left: 6px;
+      }
+      .legend-dot { width: 10px; height: 10px; border-radius: 3px; display: inline-block; margin-left: 8px; }
+      .legend-dot.top { background: var(--chosen); }
+      .legend-dot.nontop { background: var(--nontop); }
       .chip .x {
         cursor: pointer;
         border: none;
@@ -220,7 +231,13 @@
         </div>
 
         <div class="committed-wrap">
-          <label>Tokens chosen so far <span style="text-transform: none; letter-spacing: 0">(click ✕ to back out)</span></label>
+          <label>Tokens chosen so far
+            <span class="legend">
+              <span class="legend-dot top"></span>most-probable
+              <span class="legend-dot nontop"></span>less-likely pick
+              <span style="text-transform: none; letter-spacing: 0; color: var(--muted)">· click ✕ to back out</span>
+            </span>
+          </label>
           <div class="committed" id="committed">
             <span class="committed-empty">None yet — press Predict, then Next token.</span>
           </div>

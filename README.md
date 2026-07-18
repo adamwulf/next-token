@@ -14,8 +14,9 @@ One HTML page + one JS file talking to a single Netlify Function. The OpenAI API
 - **Sampling meta-parameters** — Temperature (0–2), Top-k (1–5), Top-p (0.1–1.0). Dragging any slider reshapes the on-screen bars instantly, **client-side, with no server call** (the model's probabilities don't depend on these params — see below). Candidates ruled out by top-k / top-p are greyed out. Whatever the bars show is exactly what **Next token** samples from.
 - **Next token →** — samples one token *from the reshaped distribution* (per the current temperature / top-k / top-p, so not always the argmax), commits it, and re-predicts from the new position.
 - **Click a candidate** — instead of sampling, click any (non-excluded) candidate word to choose *that* token yourself. It's committed and the demo re-predicts from the new text.
-- **Committed-token breadcrumb** — the tokens chosen so far, each with a ✕ that truncates the sequence back to before that token and re-predicts from there.
-- **Reset** — blanks the prompt, the committed tokens, and the meta-parameters back to defaults.
+- **Committed-token breadcrumb** — the tokens chosen so far, each with a ✕ that truncates the sequence back to before that token and re-predicts from there. Each chip is **gold if it was the model's most-probable token** and **magenta if it was a less-likely pick** — the core teaching moment: at higher temperature / wider top-k / top-p the model stops taking the obvious path, and the magenta chips show exactly when.
+- **Predict** re-reads the prompt box and predicts from `prompt + committed tokens` — it **keeps** the tokens already chosen (it doesn't clear the breadcrumb).
+- **Reset** clears the committed tokens, resets the meta-parameters, and **restores the default prompt** (`"The capital of France is"`) into the box.
 
 Every action that changes the **text** (choose/sample a token, remove one with ✕) re-predicts against `prompt + committed tokens`, so the candidate list is always the model's real distribution for the current sequence. Changing the **sampling** sliders does *not* re-predict — it only reshapes/filters the fixed distribution the model already returned.
 

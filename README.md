@@ -21,7 +21,7 @@ One HTML page + one JS file talking to a single Netlify Function. The OpenAI API
 |------|------------|
 | `index.html` | The page: prompt + counter, breadcrumb, meta-param sliders, buttons, bar chart. |
 | `app.js` | Front-end logic: fetches candidates, reshapes/samples the distribution client-side, renders. |
-| `netlify/functions/next-token.js` | Server function: holds the API key, returns only the base top-5 logprobs. |
+| `netlify/functions/next-token.mjs` | Server function: holds the API key, returns only the base top-5 logprobs. |
 | `netlify.toml` | Netlify config (no build step). |
 
 ## Setup
@@ -49,7 +49,7 @@ Then open the URL Netlify prints (usually **http://localhost:8888**), type a pro
 Browser (index.html + app.js)
    │  POST /.netlify/functions/next-token  { prompt }
    ▼
-Netlify Function (next-token.js)   ← OPENAI_API_KEY lives here, never sent to the browser
+Netlify Function (next-token.mjs)  ← OPENAI_API_KEY lives here, never sent to the browser
    │  calls OpenAI with model + logprobs + top_logprobs hard-coded, at neutral temperature 1.0
    ▼
 OpenAI Chat Completions API

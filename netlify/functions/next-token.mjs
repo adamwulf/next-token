@@ -19,10 +19,10 @@
 // the on-screen bars instantly, with no extra API call, and the selection is
 // always consistent with the probabilities shown. See README.
 //
-// TODO (future public deploy only): if this is ever deployed publicly rather
-// than run locally with `netlify dev`, add (1) an OpenAI project spend cap as
-// the real backstop, and (2) Netlify per-IP rate limiting on this function.
-// Neither is needed for the local screen-recording workflow.
+// Netlify per-IP rate limiting is enabled below (see the `config` export). For
+// a public deploy, also set an OpenAI project spend cap as the real cost
+// backstop. Neither affects the local `netlify dev` recording workflow — the
+// rate limit is only enforced on deployed Netlify.
 
 const OPENAI_URL = "https://api.openai.com/v1/completions";
 
@@ -31,6 +31,13 @@ const MODEL = "gpt-3.5-turbo-instruct"; // a text-COMPLETION model, not a chat m
 const MAX_TOKENS = 1; // we only need the next single token's distribution
 const LOGPROBS = 20; // completions API returns the top-N exact candidates; it caps at 20
 const MAX_PROMPT_CHARS = 500; // truncate the prompt to bound cost/abuse
+
+// Netlify per-IP rate limiting (declared here, not in netlify.toml). ~1 req/sec:
+// 60 requests per 60-second sliding window per IP; the next request gets a 429.
+// windowSize is in seconds (max 180). Enforced on deployed Netlify only.
+export const config = {
+  rateLimit: { windowSize: 60, windowLimit: 60, aggregateBy: ["ip"] },
+};
 
 export default async (req) => {
   if (req.method !== "POST") {

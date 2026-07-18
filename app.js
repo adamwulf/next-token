@@ -329,7 +329,11 @@ function shapeDistribution(candidates, { temperature, topk, topp }) {
     weights = exps.map((e) => e / sum);
   }
 
-  // Attach and sort high -> low.
+  // Attach and sort high -> low. `prob` is the DISPLAYED probability — the
+  // temperature-reshaped weight over ALL candidates (it always sums to 1 across
+  // the full list, and is NOT renormalized when top-k/top-p exclude rows). So
+  // every row always shows its true (temperature-adjusted) probability; the
+  // top-k/top-p cuts only FADE rows, they don't change the numbers shown.
   let rows = candidates.map((c, i) => ({ token: c.token, prob: weights[i], excluded: false }));
   rows.sort((a, b) => b.prob - a.prob);
 
@@ -354,25 +358,25 @@ function shapeDistribution(candidates, { temperature, topk, topp }) {
     }
   }
 
-  // 4. Renormalize the kept probabilities so they sum to 1 (the actual sampling
-  //    distribution). Guard against everything being excluded.
+  // 4. Separately compute the SAMPLING probability: renormalize the kept rows so
+  //    they sum to 1. This is what "Next token" samples from — it never picks an
+  //    excluded row — but it does NOT affect the `prob` shown on screen.
   const keptSum = rows.filter((r) => !r.excluded).reduce((a, r) => a + r.prob, 0);
-  if (keptSum > 0) {
-    rows.forEach((r) => {
-      r.prob = r.excluded ? 0 : r.prob / keptSum;
-    });
-  }
+  rows.forEach((r) => {
+    r.sampleProb = r.excluded || keptSum <= 0 ? 0 : r.prob / keptSum;
+  });
   return rows;
 }
 
-// Sample one row from a shaped distribution (already renormalized over kept).
+// Sample one row from a shaped distribution, using each row's sampleProb
+// (renormalized over the kept, non-excluded rows).
 function sampleFrom(rows) {
-  const kept = rows.filter((r) => !r.excluded && r.prob > 0);
+  const kept = rows.filter((r) => !r.excluded && r.sampleProb > 0);
   if (kept.length === 0) return null;
   const r = randomUnit();
   let cum = 0;
   for (const row of kept) {
-    cum += row.prob;
+    cum += row.sampleProb;
     if (r <= cum) return row;
   }
   return kept[kept.length - 1]; // floating-point fallback

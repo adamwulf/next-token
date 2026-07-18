@@ -28,7 +28,16 @@
         line-height: 1.4;
         -webkit-font-smoothing: antialiased;
       }
-      .wrap { max-width: 960px; margin: 0 auto; padding: 32px 28px 70px; }
+      .wrap { max-width: 1400px; margin: 0 auto; padding: 32px 28px 70px; }
+      /* Two columns on wide screens: controls on the left, candidates on the
+         right so the (up to 20) candidate bars get the full viewport height.
+         Stacks to one column on narrower screens. */
+      .layout { display: grid; grid-template-columns: minmax(380px, 40%) 1fr; gap: 26px; align-items: start; }
+      .candidates-col { position: sticky; top: 20px; }
+      @media (max-width: 900px) {
+        .layout { grid-template-columns: 1fr; }
+        .candidates-col { position: static; }
+      }
       h1 { font-size: 40px; margin: 0 0 4px; letter-spacing: -0.5px; }
       .subtitle { color: var(--muted); font-size: 20px; margin: 0 0 26px; }
 
@@ -253,6 +262,10 @@
         temperature, top-k, and top-p, and build the text one token at a time.
       </p>
 
+      <div class="layout">
+      <!-- LEFT: prompt, tokens, controls -->
+      <div class="controls-col">
+
       <!-- Prompt + committed-token breadcrumb -->
       <div class="panel">
         <div class="prompt-head">
@@ -327,21 +340,27 @@
       </div>
 
       <div class="status" id="status"></div>
+      </div><!-- /controls-col -->
 
-      <div class="candidates-head" id="candHead" style="display: none">
-        Candidates for the next token — click one to choose it
-      </div>
-      <div class="bars" id="bars"></div>
+      <!-- RIGHT: candidate list -->
+      <div class="candidates-col">
+        <div class="candidates-head" id="candHead" style="display: none">
+          Candidates for the next token — click one to choose it
+        </div>
+        <div class="bars" id="bars"></div>
+      </div><!-- /candidates-col -->
+      </div><!-- /layout -->
 
       <p class="footnote">
         Text-completion model <code>gpt-3.5-turbo-instruct</code> (the
         <code>/v1/completions</code> endpoint — it <em>continues</em> your text rather than
         answering it) via a Netlify Function that hides the API key.
         The function returns the model's <strong>true</strong> next-token probabilities
-        (<code>exp(logprob)</code> from the top 5 alternatives, at neutral temperature 1.0).
+        (<code>exp(logprob)</code> from the top 20 alternatives, at neutral temperature 1.0).
         Temperature, top-k, and top-p then reshape and sample that distribution
         <strong>entirely in your browser</strong> — so you watch the real probabilities transform.
-        Greyed-out rows are candidates your top-k / top-p settings have ruled out.
+        Each bar shows a candidate's real probability; <strong>greyed-out</strong> rows are the ones
+        your top-k / top-p settings pull out of sampling (they still show their true probability).
       </p>
     </div>
 

@@ -91,7 +91,7 @@ The math, in `app.js` → `shapeDistribution()`:
 - **Temperature** — `softmax(logprob / T)`. As `T → 0` it becomes greedy (argmax); larger `T` flattens the distribution.
 - **Top-k** — keep only the `k` highest-probability candidates.
 - **Top-p (nucleus)** — keep the smallest set of candidates whose cumulative probability reaches `p`.
-- The kept probabilities are **renormalized to sum to 1**, and **Next token** samples from exactly that distribution — so the token chosen is always consistent with the bars on screen.
+- **What the bars show vs. what's sampled.** The bars always show each candidate's **raw, true** probability — the temperature-reshaped softmax over **all** candidates (it sums to 1 across the whole list and is *not* renormalized when top-k/top-p exclude rows). So an excluded candidate still shows its real probability; it's just **faded** to signal it was pulled out of sampling. Internally, **Next token** samples from the kept rows renormalized to 1 (`sampleProb`) — it never picks a faded row — but that renormalization never changes the numbers on screen.
 
 *(Note: top-k maxes at 20 because the completions endpoint returns at most 20 exact candidates. The slider defaults to 5.)*
 

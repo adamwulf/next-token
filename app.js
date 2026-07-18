@@ -21,6 +21,7 @@ const DEFAULTS = { temp: 1.0, topk: 5, topp: 1.0 };
 const DEFAULT_PROMPT = "The capital of France is"; // Reset restores this
 const EOT = "<|endoftext|>"; // the model's end-of-text (stop) token string
 const EOT_LABEL = "⟨end of text⟩"; // how we display it
+const NONE_YET = "None yet — pick a candidate or press Next token."; // default status
 
 const els = {
   prompt: document.getElementById("prompt"),
@@ -298,12 +299,12 @@ async function fetchCandidates() {
     baseCandidates = data.candidates;
     rerenderCandidates();
     els.nextBtn.disabled = false;
-    // The candidate list header already explains what to do; keep the status
-    // line to just the committed count (or empty at the start).
+    // Unified status line below the breadcrumb: the committed count, or the
+    // "none yet" prompt at the start.
     setStatus(
       committed.length
         ? `${committed.length} token${committed.length === 1 ? "" : "s"} committed.`
-        : ""
+        : NONE_YET
     );
   } catch (err) {
     if (reqId === predictReqId) setStatus(err.message, true);
@@ -445,11 +446,8 @@ function rerenderCandidates() {
 }
 
 function renderCommitted() {
-  if (committed.length === 0) {
-    els.committed.innerHTML =
-      '<span class="committed-empty">None yet — pick a candidate or press Next token.</span>';
-    return;
-  }
+  // The empty state / status is shown by the status line below (setStatus),
+  // so an empty breadcrumb just renders nothing here.
   els.committed.innerHTML = "";
   committed.forEach((c, i) => {
     const chip = document.createElement("span");

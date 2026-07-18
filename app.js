@@ -430,7 +430,10 @@ function renderCommitted() {
     // teaching moment: the model didn't take the obvious path).
     chip.className = "chip" + (c.eot ? " eot" : c.wasTop ? " top" : " nontop");
     chip.innerHTML = `<span>${tokenHtml(c.token)}</span><button class="x" title="Back out to here" aria-label="Remove this token and everything after it">✕</button>`;
-    chip.querySelector(".x").addEventListener("click", () => backOutTo(i));
+    chip.querySelector(".x").addEventListener("click", () => {
+      hideTooltip(); // the chip is about to be removed — dismiss its tooltip
+      backOutTo(i);
+    });
     // Rich, instant hover tooltip: rank + true (displayed) probability.
     chip.addEventListener("mouseenter", () => showTooltip(chip, c));
     chip.addEventListener("mousemove", () => positionTooltip(chip));

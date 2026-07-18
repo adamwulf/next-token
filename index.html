@@ -132,7 +132,10 @@
         margin: 2px 2px 14px;
       }
       .bars { display: flex; flex-direction: column; gap: 12px; }
-      .bar-row { display: grid; grid-template-columns: 190px 1fr 92px; align-items: center; gap: 16px; }
+      .bar-row { display: grid; grid-template-columns: 190px 1fr 92px; align-items: center; gap: 16px; border-radius: 8px; }
+      .bar-row.clickable { cursor: pointer; }
+      .bar-row.clickable:hover .tok { border-color: var(--accent); color: var(--accent); }
+      .bar-row.clickable:hover .fill { filter: brightness(1.18); }
       .tok {
         font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
         font-size: 22px;
@@ -228,7 +231,7 @@
       <div class="status" id="status"></div>
 
       <div class="candidates-head" id="candHead" style="display: none">
-        Candidates for the next token — reshaped by your meta-parameters
+        Candidates for the next token — click one to choose it
       </div>
       <div class="bars" id="bars"></div>
 

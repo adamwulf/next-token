@@ -10,10 +10,13 @@ One HTML page + one JS file talking to a single Netlify Function. The OpenAI API
 
 - **Prompt box** with a live character counter and a hard 500-char limit (`maxlength` + `"123 / 500"`).
 - **Predict** — fetch the model's true top-5 next-token candidates, sorted by probability, each with a bar (`exp(logprob)` as %).
-- **Sampling meta-parameters** — Temperature (0–2), Top-k (1–5), Top-p (0.1–1.0). Dragging any slider reshapes the on-screen bars instantly (no extra API call). Candidates ruled out by top-k / top-p are greyed out.
-- **Next token →** — samples one token *from the reshaped distribution* (not always the argmax), commits it, and re-predicts from the new position.
+- **Sampling meta-parameters** — Temperature (0–2), Top-k (1–5), Top-p (0.1–1.0). Dragging any slider reshapes the on-screen bars instantly, **client-side, with no server call** (the model's probabilities don't depend on these params — see below). Candidates ruled out by top-k / top-p are greyed out. Whatever the bars show is exactly what **Next token** samples from.
+- **Next token →** — samples one token *from the reshaped distribution* (per the current temperature / top-k / top-p, so not always the argmax), commits it, and re-predicts from the new position.
+- **Click a candidate** — instead of sampling, click any (non-excluded) candidate word to choose *that* token yourself. It's committed and the demo re-predicts from the new text.
 - **Committed-token breadcrumb** — the tokens chosen so far, each with a ✕ that truncates the sequence back to before that token and re-predicts from there.
 - **Reset** — blanks the prompt, the committed tokens, and the meta-parameters back to defaults.
+
+Every action that changes the **text** (choose/sample a token, remove one with ✕) re-predicts against `prompt + committed tokens`, so the candidate list is always the model's real distribution for the current sequence. Changing the **sampling** sliders does *not* re-predict — it only reshapes/filters the fixed distribution the model already returned.
 
 ## Files
 
@@ -77,8 +80,8 @@ A **chat** model (`gpt-4o-mini`, `gpt-4o` via `/v1/chat/completions`) would inst
 
 The meta-parameters (temperature, top-k, top-p) are applied **entirely in the browser**, on top of the model's true base distribution. Two reasons:
 
-1. **Avoid double-counting temperature.** If the API applied temperature *and* the browser reshaped again, temperature would be applied twice and the on-screen distribution would be wrong. So the function asks OpenAI at neutral **temperature 1.0** — its job is just "give me the real probabilities" — and all reshaping happens once, visibly, client-side.
-2. **It's the whole teaching point.** Students see the model's *true* next-token probabilities, then watch temperature / top-k / top-p transform them and drive the actual token that gets picked — with no hidden step and no round-trip lag when a slider moves.
+1. **The API can't do it.** OpenAI's `logprobs` are the model's *raw* next-token probabilities and **do not change with `temperature` / `top_p`** — those parameters only affect which token gets *sampled/generated*, not the reported distribution. (Verified: calling the completions API for the same prompt at `temperature` 0.1 vs 1.0 returns byte-identical logprobs.) So the function asks OpenAI at neutral **temperature 1.0** purely to get "the real probabilities," and every reshaping the demo shows *has* to happen client-side. There's also no `top_k` parameter on OpenAI's API at all — it's inherently a client-side selection filter.
+2. **It's the whole teaching point.** Students see the model's *true, fixed* next-token probabilities, then watch temperature / top-k / top-p transform how those probabilities are turned into a choice — with no hidden step and no round-trip lag when a slider moves. The accurate mental model is "the model gives fixed probabilities; the sampling knobs decide how we pick from them," and doing the reshaping visibly in the browser teaches exactly that.
 
 The math, in `app.js` → `shapeDistribution()`:
 

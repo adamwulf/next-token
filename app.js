@@ -1,16 +1,21 @@
 // Next-token-prediction demo (course demo 3.05a / sets up 3.10a).
 //
 // Flow:
-//   1. The Netlify function returns the model's TRUE top-5 next-token
-//      distribution (base logprobs, neutral temperature 1.0).
+//   1. The Netlify function returns the model's TRUE top-5 next-token logprobs
+//      for (prompt + committed tokens). These raw logprobs are what the model
+//      actually assigns — OpenAI's API returns them unchanged by temperature
+//      (temperature only affects sampling, not the reported logprobs), so all
+//      reshaping is done here, client-side.
 //   2. The sampling meta-parameters — temperature, top-k, top-p — reshape and
-//      sample that base distribution ENTIRELY CLIENT-SIDE, so dragging a slider
-//      updates the on-screen bars instantly and the committed token is always
-//      sampled from exactly the probabilities shown. (Temperature is applied
-//      once, here, to avoid double-counting it against the API.)
-//   3. "Next token" samples one token per the meta-params, appends it to the
-//      sequence, and re-fetches the candidates for the new position — building
-//      the text token by token. The breadcrumb lets you back out to any point.
+//      sample that base distribution CLIENT-SIDE, so dragging a slider updates
+//      the on-screen bars instantly and the committed token is always sampled
+//      from exactly the probabilities shown.
+//   3. A token gets committed either by SAMPLING it ("Next token") or by the
+//      user CLICKING a candidate word. Either way it's appended to the sequence
+//      and the candidates are re-predicted for the new position — building the
+//      text token by token. The breadcrumb's ✕ backs out to any point, which
+//      also re-predicts. So the shown candidates always match (prompt +
+//      committed tokens).
 
 const DEFAULTS = { temp: 1.0, topk: 5, topp: 1.0 };
 
@@ -38,7 +43,14 @@ let committed = []; // token strings the user has committed, in order
 let baseCandidates = null; // [{ token, logprob }] for the CURRENT position, from the API
 let busy = false;
 
-// ---- meta-parameter controls (live reshape, no refetch) ----
+// ---- meta-parameter controls (live client-side reshape, no server refetch) ----
+//
+// These params don't change the model's logprobs — OpenAI returns the same raw
+// distribution regardless of temperature/top-p (they affect sampling, not the
+// reported probabilities). So changing a slider only reshapes the fixed base
+// distribution on-screen; it never re-hits the server. The reshaped result is
+// exactly what "Next token" samples from, so the sliders directly control how
+// the next token is chosen.
 
 els.temp.addEventListener("input", () => {
   els.tempValue.textContent = Number(els.temp.value).toFixed(2);
@@ -74,14 +86,28 @@ async function startFresh() {
 
 // Sample one token per the meta-parameters, commit it, and fetch the next set.
 async function commitNextToken() {
-  if (!baseCandidates) return;
+  if (busy || !baseCandidates) return;
   const shaped = shapeDistribution(baseCandidates, metaParams());
   const pick = sampleFrom(shaped);
   if (!pick) {
     setStatus("No candidate to sample — try adjusting the meta-parameters.", true);
     return;
   }
-  committed.push(pick.token);
+  await commitToken(pick.token);
+}
+
+// Commit a specific token the user picked by clicking it in the candidate list,
+// then re-predict from the new sequence. (Same commit path as sampling, just
+// with the token chosen explicitly instead of sampled.)
+async function commitCandidate(token) {
+  if (busy || !baseCandidates) return;
+  await commitToken(token);
+}
+
+// Append `token` to the committed sequence and re-predict, so the candidate
+// list always reflects (prompt + committed tokens).
+async function commitToken(token) {
+  committed.push(token);
   renderCommitted();
   await fetchCandidates();
 }
@@ -140,8 +166,8 @@ async function fetchCandidates() {
     els.nextBtn.disabled = false;
     setStatus(
       committed.length
-        ? `${committed.length} token${committed.length === 1 ? "" : "s"} committed. Adjust the sampling and press “Next token”.`
-        : "Here are the model's true next-token probabilities. Reshape them with the sliders, then press “Next token”."
+        ? `${committed.length} token${committed.length === 1 ? "" : "s"} committed. Click a word or press “Next token” to keep going.`
+        : "Here are the model's true next-token probabilities. Click a word to choose it, or press “Next token” to sample one."
     );
   } catch (err) {
     setStatus(err.message, true);
@@ -246,13 +272,19 @@ function rerenderCandidates() {
   els.bars.innerHTML = "";
   for (const row of rows) {
     const widthPct = (row.prob / maxProb) * 100;
+    const clickable = !row.excluded; // excluded (top-k/top-p ruled out) can't be chosen
     const rowEl = document.createElement("div");
-    rowEl.className = "bar-row" + (row.excluded ? " excluded" : "");
+    rowEl.className =
+      "bar-row" + (row.excluded ? " excluded" : "") + (clickable ? " clickable" : "");
     rowEl.innerHTML = `
       <div class="tok">${tokenHtml(row.token)}</div>
       <div class="track"><div class="fill" style="width:${widthPct.toFixed(1)}%"></div></div>
       <div class="pct ${row.excluded ? "excluded" : ""}">${(row.prob * 100).toFixed(1)}%</div>
     `;
+    if (clickable) {
+      rowEl.title = "Click to choose this token";
+      rowEl.addEventListener("click", () => commitCandidate(row.token));
+    }
     els.bars.appendChild(rowEl);
   }
 }

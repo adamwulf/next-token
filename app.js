@@ -40,6 +40,7 @@ const els = {
   status: document.getElementById("status"),
   candHead: document.getElementById("candHead"),
   bars: document.getElementById("bars"),
+  tooltip: document.getElementById("tooltip"),
 };
 
 // State
@@ -175,17 +176,17 @@ async function commitToken(token) {
   await fetchCandidates();
 }
 
-// Where `token` fell in the model's TRUE next-token distribution at the moment
-// it was chosen: its 1-based rank, the number of candidates, and its probability
-// (softmax over the base logprobs — the same numbers the bars show at neutral
-// settings). Used for the breadcrumb colour and the per-chip hover tooltip.
+// Where `token` fell in the candidate list at the moment it was chosen: its
+// 1-based rank, the number of candidates, and its DISPLAYED probability (`prob`
+// — the raw, temperature-shaped value shown on the bar, NOT the renormalized
+// sampleProb). Used for the breadcrumb colour and the per-chip hover tooltip, so
+// the tooltip matches exactly what the bar showed.
 function tokenStats(token) {
   if (!baseCandidates || baseCandidates.length === 0) return { rank: null, of: null, prob: null, wasTop: false };
-  const sorted = [...baseCandidates].sort((a, b) => b.logprob - a.logprob);
-  const total = sorted.reduce((s, c) => s + Math.exp(c.logprob), 0);
-  const idx = sorted.findIndex((c) => c.token === token);
-  if (idx === -1) return { rank: null, of: sorted.length, prob: null, wasTop: false };
-  return { rank: idx + 1, of: sorted.length, prob: Math.exp(sorted[idx].logprob) / total, wasTop: idx === 0 };
+  const rows = shapeDistribution(baseCandidates, metaParams()); // sorted high -> low, prob = displayed
+  const idx = rows.findIndex((r) => r.token === token);
+  if (idx === -1) return { rank: null, of: rows.length, prob: null, wasTop: false };
+  return { rank: idx + 1, of: rows.length, prob: rows[idx].prob, wasTop: idx === 0 };
 }
 
 // Truncate the committed sequence back to `keep` tokens, then re-predict from
@@ -428,24 +429,53 @@ function renderCommitted() {
     // whether this was the model's most-probable token (a "non-top" chip is the
     // teaching moment: the model didn't take the obvious path).
     chip.className = "chip" + (c.eot ? " eot" : c.wasTop ? " top" : " nontop");
-    chip.title = committedTooltip(c);
     chip.innerHTML = `<span>${tokenHtml(c.token)}</span><button class="x" title="Back out to here" aria-label="Remove this token and everything after it">✕</button>`;
     chip.querySelector(".x").addEventListener("click", () => backOutTo(i));
+    // Rich, instant hover tooltip: rank + true (displayed) probability.
+    chip.addEventListener("mouseenter", () => showTooltip(chip, c));
+    chip.addEventListener("mousemove", () => positionTooltip(chip));
+    chip.addEventListener("mouseleave", hideTooltip);
     els.committed.appendChild(chip);
   });
 }
 
-// Hover text for a committed token: where it ranked in the model's true
-// next-token distribution and its probability at the moment it was chosen.
-function committedTooltip(c) {
-  const parts = [];
-  if (c.rank != null) {
-    if (c.wasTop) parts.push("Rank 1 (the model's top choice)");
-    else parts.push(`Rank ${c.rank}${c.of ? ` of ${c.of}` : ""} — a less-likely choice`);
-  }
-  if (c.prob != null) parts.push(`${(c.prob * 100).toFixed(1)}% probability`);
-  if (c.eot) parts.push("end-of-text — the model completed the text here");
-  return parts.length ? parts.join(" · ") : "chosen token";
+// ---- rich hover tooltip for chosen tokens (instant, no native-title delay) ----
+
+function tooltipHtml(c) {
+  const kind = c.eot ? "eot" : c.wasTop ? "top" : "nontop";
+  const rankLine = c.rank == null
+    ? ""
+    : c.wasTop
+    ? `<div class="tt-rank">Rank 1 — the model's top choice</div>`
+    : `<div class="tt-rank">Rank ${c.rank}${c.of ? ` of ${c.of}` : ""} — a less-likely choice</div>`;
+  const probLine = c.prob == null
+    ? ""
+    : `<div><span class="tt-prob ${kind}">${(c.prob * 100).toFixed(2)}%</span> probability</div>`;
+  const eotLine = c.eot ? `<div class="tt-rank">end-of-text — the model completed the text here</div>` : "";
+  return `<div class="tt-token">${tokenHtml(c.token)}</div>${rankLine}${probLine}${eotLine}`;
+}
+
+function showTooltip(chip, c) {
+  els.tooltip.innerHTML = tooltipHtml(c);
+  els.tooltip.classList.add("show");
+  positionTooltip(chip);
+}
+
+// Place the tooltip just above the chip, clamped to the viewport.
+function positionTooltip(chip) {
+  const r = chip.getBoundingClientRect();
+  const tt = els.tooltip;
+  const ttRect = tt.getBoundingClientRect();
+  let left = r.left + r.width / 2 - ttRect.width / 2;
+  left = Math.max(8, Math.min(left, window.innerWidth - ttRect.width - 8));
+  let top = r.top - ttRect.height - 8;
+  if (top < 8) top = r.bottom + 8; // flip below if no room above
+  tt.style.left = `${left}px`;
+  tt.style.top = `${top}px`;
+}
+
+function hideTooltip() {
+  els.tooltip.classList.remove("show");
 }
 
 // ---- token view (how the typed prompt splits into tokens) ----

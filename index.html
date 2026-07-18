@@ -126,6 +126,36 @@
          (the teaching moment: the model didn't take the obvious path). */
       .chip.top { border-color: var(--chosen); color: var(--chosen); }
       .chip.nontop { border-color: var(--nontop); color: var(--nontop); }
+
+      /* Rich hover tooltip for chosen tokens (appears immediately, no delay). */
+      .tooltip {
+        position: fixed;
+        z-index: 100;
+        pointer-events: none;
+        background: #0b0d12;
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        padding: 10px 14px;
+        box-shadow: 0 8px 28px rgba(0, 0, 0, 0.55);
+        font-size: 15px;
+        line-height: 1.5;
+        color: var(--text);
+        max-width: 300px;
+        opacity: 0;
+        transform: translateY(4px);
+        transition: opacity 0.08s ease, transform 0.08s ease;
+      }
+      .tooltip.show { opacity: 1; transform: translateY(0); }
+      .tooltip .tt-token {
+        font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+        font-size: 17px; font-weight: 700; margin-bottom: 4px;
+      }
+      .tooltip .tt-rank { color: var(--muted); }
+      .tooltip .tt-prob { font-variant-numeric: tabular-nums; font-weight: 700; }
+      .tooltip .tt-prob.top { color: var(--chosen); }
+      .tooltip .tt-prob.nontop { color: var(--nontop); }
+      .tooltip .tt-prob.eot { color: var(--accent); }
+      .tooltip .ws { color: var(--muted); }
       /* End-of-text token: a distinct "stop" look wherever it's rendered. */
       .chip.eot { border-color: var(--accent); color: var(--accent); font-style: italic; }
       .eot { color: var(--accent); font-style: italic; }
@@ -363,6 +393,8 @@
         your top-k / top-p settings pull out of sampling (they still show their true probability).
       </p>
     </div>
+
+    <div class="tooltip" id="tooltip" role="tooltip"></div>
 
     <script src="app.js"></script>
   </body>

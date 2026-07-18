@@ -34,7 +34,7 @@ const els = {
   tempValue: document.getElementById("tempValue"),
   topkValue: document.getElementById("topkValue"),
   toppValue: document.getElementById("toppValue"),
-  predictBtn: document.getElementById("predictBtn"),
+  metasHint: document.getElementById("metasHint"),
   nextBtn: document.getElementById("nextBtn"),
   resetBtn: document.getElementById("resetBtn"),
   status: document.getElementById("status"),
@@ -49,12 +49,15 @@ let baseCandidates = null; // [{ token, logprob }] for the CURRENT position, fro
 let finished = false; // true once end-of-text is reached — no more predictions
 let busy = false;
 
-// Token-view state (declared here so the on-load tokenizePrompt() call, which
-// runs before the token-view section below, can access them — `let` bindings
-// aren't hoisted like function declarations are).
+// Debounce timers + request-id guards. Declared here (not next to their
+// functions) so the on-load tokenizePrompt()/predictFromState() calls can access
+// them — `let` bindings aren't hoisted like function declarations are.
 let tokenizeTimer = null;
 let tokenizeReqId = 0;
 const TOKENIZE_DEBOUNCE_MS = 400;
+let predictTimer = null;
+let predictReqId = 0;
+const PREDICT_DEBOUNCE_MS = 400;
 
 // ---- meta-parameter controls (live client-side reshape, no server refetch) ----
 //
@@ -67,38 +70,59 @@ const TOKENIZE_DEBOUNCE_MS = 400;
 
 els.temp.addEventListener("input", () => {
   els.tempValue.textContent = Number(els.temp.value).toFixed(2);
+  updateMetasHint();
   rerenderCandidates();
 });
 els.topk.addEventListener("input", () => {
   els.topkValue.textContent = els.topk.value;
+  updateMetasHint();
   rerenderCandidates();
 });
 els.topp.addEventListener("input", () => {
   els.toppValue.textContent = Number(els.topp.value).toFixed(2);
+  updateMetasHint();
   rerenderCandidates();
 });
 
+// Compact summary of the current sampling settings, shown next to the section
+// title when the meta-parameters are collapsed.
+function updateMetasHint() {
+  els.metasHint.textContent =
+    `temp ${Number(els.temp.value).toFixed(2)} · top-k ${els.topk.value} · top-p ${Number(els.topp.value).toFixed(2)}`;
+}
+updateMetasHint();
+
+// Typing in the prompt box updates the counter and, after a short debounce,
+// re-tokenizes AND re-predicts from the current state (prompt + committed
+// tokens). There is no Predict button — the demo always reflects the live UI.
+// Editing the text does NOT clear the chosen tokens; the user does that with ✕.
 els.prompt.addEventListener("input", () => {
   updateCounter();
   scheduleTokenize();
+  schedulePredict();
 });
 
-els.predictBtn.addEventListener("click", () => startFresh());
 els.nextBtn.addEventListener("click", () => commitNextToken());
 els.resetBtn.addEventListener("click", () => reset());
 
 updateCounter();
 tokenizePrompt(); // show the token split for the pre-filled prompt on load
+predictFromState(); // and predict its next token right away
 
 // ---- main actions ----
 
-// Predict from the current prompt box. Keeps any tokens already chosen (Predict
-// re-reads the prompt as the new seed but does NOT clear the breadcrumb), and
-// fetches the candidates for the next position after (prompt + committed).
-async function startFresh() {
+// Debounced re-predict, called as the user types in the prompt box.
+function schedulePredict() {
+  if (predictTimer) clearTimeout(predictTimer);
+  predictTimer = setTimeout(predictFromState, PREDICT_DEBOUNCE_MS);
+}
+
+// Predict the next token from the current UI state: the prompt box text plus the
+// tokens chosen so far. Does NOT clear the chosen tokens when the text changes —
+// the user manages those with ✕ / Reset. If the sequence had finished, editing
+// the text resumes prediction (drop the trailing end-of-text token first).
+async function predictFromState() {
   seed = els.prompt.value;
-  // If the sequence had already finished, drop the trailing end-of-text token
-  // so we predict from clean text rather than from the literal "<|endoftext|>".
   if (finished) {
     finished = false;
     if (committed.length && committed[committed.length - 1].eot) committed.pop();
@@ -172,6 +196,7 @@ async function backOutTo(keep) {
 
 function reset() {
   if (busy) return;
+  if (predictTimer) clearTimeout(predictTimer); // drop any pending keystroke predict
   seed = "";
   committed = [];
   baseCandidates = null;
@@ -183,20 +208,32 @@ function reset() {
   els.tempValue.textContent = DEFAULTS.temp.toFixed(2);
   els.topkValue.textContent = String(DEFAULTS.topk);
   els.toppValue.textContent = DEFAULTS.topp.toFixed(2);
+  updateMetasHint();
   els.bars.innerHTML = "";
   els.candHead.style.display = "none";
   els.nextBtn.disabled = true;
   renderCommitted();
   updateCounter();
   tokenizePrompt(); // re-tokenize the restored default prompt
+  predictFromState(); // and predict its next token
   setStatus("");
 }
 
 // Fetch the base top-5 candidates for the current position (seed + committed).
+// The predictReqId guard (declared with the module state up top) rejects
+// out-of-order responses: since prediction now fires on every (debounced)
+// keystroke, a slow earlier request must not overwrite a newer one's result.
 async function fetchCandidates() {
+  const reqId = ++predictReqId;
   const currentText = seed + committed.map((c) => c.token).join("");
   if (!currentText.trim()) {
-    setStatus("Type a prompt first.", true);
+    // Empty input — nothing to predict. Clear quietly (this fires on every
+    // keystroke, so an empty box is a normal state, not an error).
+    baseCandidates = null;
+    els.bars.innerHTML = "";
+    els.candHead.style.display = "none";
+    els.nextBtn.disabled = true;
+    setStatus("Type a prompt to see the model's next-token prediction.");
     return;
   }
   setBusy(true);
@@ -208,6 +245,7 @@ async function fetchCandidates() {
       body: JSON.stringify({ prompt: currentText }),
     });
     const data = await resp.json();
+    if (reqId !== predictReqId) return; // a newer prediction superseded this one
     if (!resp.ok) throw new Error(data.error || `Request failed (${resp.status})`);
 
     // The model decided the text is complete: it predicted end-of-text and the
@@ -231,9 +269,9 @@ async function fetchCandidates() {
         : "Here are the model's true next-token probabilities. Click a word to choose it, or press “Next token” to sample one."
     );
   } catch (err) {
-    setStatus(err.message, true);
+    if (reqId === predictReqId) setStatus(err.message, true);
   } finally {
-    setBusy(false);
+    if (reqId === predictReqId) setBusy(false);
   }
 }
 
@@ -368,7 +406,7 @@ function rerenderCandidates() {
 function renderCommitted() {
   if (committed.length === 0) {
     els.committed.innerHTML =
-      '<span class="committed-empty">None yet — press Predict, then Next token.</span>';
+      '<span class="committed-empty">None yet — pick a candidate or press Next token.</span>';
     return;
   }
   els.committed.innerHTML = "";
@@ -464,7 +502,6 @@ function updateCounter() {
 
 function setBusy(b) {
   busy = b;
-  els.predictBtn.disabled = b;
   els.resetBtn.disabled = b;
   els.nextBtn.disabled = b || !baseCandidates || finished;
 }

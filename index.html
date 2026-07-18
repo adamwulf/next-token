@@ -150,8 +150,33 @@
       .chip .x:hover { color: var(--danger); }
       .ws { color: var(--muted); opacity: 0.6; }
 
+      /* Collapsible meta-parameters */
+      .metas-details { }
+      .metas-summary {
+        list-style: none;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        user-select: none;
+      }
+      .metas-summary::-webkit-details-marker { display: none; }
+      .metas-title {
+        font-size: 15px; text-transform: uppercase; letter-spacing: 1px; color: var(--muted);
+      }
+      .metas-hint {
+        font-size: 15px; color: var(--muted); font-variant-numeric: tabular-nums;
+      }
+      .metas-chevron {
+        margin-left: auto; color: var(--muted); font-size: 16px;
+        transition: transform 0.15s ease;
+      }
+      .metas-details[open] .metas-chevron { transform: rotate(90deg); }
+      /* Hide the inline value hint when expanded (the sliders show the values). */
+      .metas-details[open] .metas-hint { display: none; }
+
       /* Meta-parameter sliders */
-      .metas { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 22px; }
+      .metas { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 22px; margin-top: 18px; }
       .meta-head { display: flex; justify-content: space-between; align-items: baseline; }
       .meta-value { font-variant-numeric: tabular-nums; font-size: 22px; font-weight: 700; color: var(--chosen); }
       input[type="range"] { width: 100%; accent-color: var(--accent); height: 28px; }
@@ -252,46 +277,51 @@
             </span>
           </label>
           <div class="committed" id="committed">
-            <span class="committed-empty">None yet — press Predict, then Next token.</span>
+            <span class="committed-empty">None yet — pick a candidate or press Next token.</span>
           </div>
         </div>
       </div>
 
-      <!-- Sampling meta-parameters -->
+      <!-- Sampling meta-parameters (collapsible) -->
       <div class="panel">
-        <label style="margin-bottom: 16px">Sampling meta-parameters</label>
-        <div class="metas">
-          <div>
-            <div class="meta-head">
-              <label for="temp" style="margin-bottom: 4px">Temperature</label>
-              <span class="meta-value" id="tempValue">1.0</span>
+        <details class="metas-details" id="metasDetails" open>
+          <summary class="metas-summary">
+            <span class="metas-title">Sampling meta-parameters</span>
+            <span class="metas-hint" id="metasHint"></span>
+            <span class="metas-chevron">▸</span>
+          </summary>
+          <div class="metas">
+            <div>
+              <div class="meta-head">
+                <label for="temp" style="margin-bottom: 4px">Temperature</label>
+                <span class="meta-value" id="tempValue">1.0</span>
+              </div>
+              <input type="range" id="temp" min="0" max="2" step="0.05" value="1.0" />
+              <div class="meta-scale"><span>0 · focused</span><span>2 · wild</span></div>
             </div>
-            <input type="range" id="temp" min="0" max="2" step="0.05" value="1.0" />
-            <div class="meta-scale"><span>0 · focused</span><span>2 · wild</span></div>
-          </div>
 
-          <div>
-            <div class="meta-head">
-              <label for="topk" style="margin-bottom: 4px">Top-k</label>
-              <span class="meta-value" id="topkValue">5</span>
+            <div>
+              <div class="meta-head">
+                <label for="topk" style="margin-bottom: 4px">Top-k</label>
+                <span class="meta-value" id="topkValue">5</span>
+              </div>
+              <input type="range" id="topk" min="1" max="5" step="1" value="5" />
+              <div class="meta-scale"><span>1 · greedy</span><span>5 · all shown</span></div>
             </div>
-            <input type="range" id="topk" min="1" max="5" step="1" value="5" />
-            <div class="meta-scale"><span>1 · greedy</span><span>5 · all shown</span></div>
-          </div>
 
-          <div>
-            <div class="meta-head">
-              <label for="topp" style="margin-bottom: 4px">Top-p</label>
-              <span class="meta-value" id="toppValue">1.00</span>
+            <div>
+              <div class="meta-head">
+                <label for="topp" style="margin-bottom: 4px">Top-p</label>
+                <span class="meta-value" id="toppValue">1.00</span>
+              </div>
+              <input type="range" id="topp" min="0.1" max="1" step="0.05" value="1.0" />
+              <div class="meta-scale"><span>0.1 · narrow</span><span>1.0 · off</span></div>
             </div>
-            <input type="range" id="topp" min="0.1" max="1" step="0.05" value="1.0" />
-            <div class="meta-scale"><span>0.1 · narrow</span><span>1.0 · off</span></div>
           </div>
-        </div>
+        </details>
 
         <div class="buttons">
-          <button class="primary" id="predictBtn">Predict</button>
-          <button id="nextBtn" disabled>Next token →</button>
+          <button class="primary" id="nextBtn" disabled>Next token →</button>
           <button id="resetBtn">Reset</button>
         </div>
       </div>

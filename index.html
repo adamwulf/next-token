@@ -86,8 +86,28 @@
         font-size: 22px;
         line-height: 1.5;
         min-height: 34px;
+        border-radius: 10px;
       }
       .tokenview-empty { font-family: inherit; color: var(--muted); font-style: italic; font-size: 16px; }
+
+      /* Prompt / Tokens tabs */
+      .tabs { display: flex; align-items: center; gap: 6px; margin-bottom: 14px; }
+      .tab {
+        font-size: 15px;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+        font-family: inherit;
+        color: var(--muted);
+        background: transparent;
+        border: none;
+        border-bottom: 2px solid transparent;
+        border-radius: 0;
+        padding: 6px 4px;
+        cursor: pointer;
+      }
+      .tab:hover { color: var(--text); }
+      .tab.active { color: var(--text); border-bottom-color: var(--accent); }
+      .tabs .counter { margin-left: auto; }
       .tk {
         border-radius: 5px;
         padding: 3px 1px;
@@ -298,16 +318,22 @@
 
       <!-- Prompt + committed-token breadcrumb -->
       <div class="panel">
-        <div class="prompt-head">
-          <label for="prompt">Prompt</label>
+        <!-- Tabs switch between the editable prompt and its tokenized view. -->
+        <div class="tabs" role="tablist">
+          <button class="tab active" id="tabPrompt" role="tab" aria-selected="true">Prompt</button>
+          <button class="tab" id="tabTokens" role="tab" aria-selected="false">Tokens</button>
           <span class="counter" id="counter">0 / 500</span>
         </div>
-        <textarea id="prompt" maxlength="500" spellcheck="false">The capital of France is</textarea>
 
-        <div class="tokenview-wrap">
-          <label>Your text as tokens <span id="tokenCount" class="token-count"></span></label>
+        <!-- Prompt tab: the editable box. -->
+        <div id="editMode">
+          <textarea id="prompt" maxlength="500" spellcheck="false">The capital of France is</textarea>
+        </div>
+
+        <!-- Tokens tab: the prompt shown as its exact tokens. -->
+        <div id="viewMode" style="display: none">
           <div class="tokenview" id="tokenview">
-            <span class="tokenview-empty">Type above to see how it splits into tokens.</span>
+            <span class="tokenview-empty">Type a prompt to see how it splits into tokens.</span>
           </div>
         </div>
 

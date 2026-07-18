@@ -25,8 +25,11 @@ const EOT_LABEL = "⟨end of text⟩"; // how we display it
 const els = {
   prompt: document.getElementById("prompt"),
   counter: document.getElementById("counter"),
+  editMode: document.getElementById("editMode"),
+  viewMode: document.getElementById("viewMode"),
+  tabPrompt: document.getElementById("tabPrompt"),
+  tabTokens: document.getElementById("tabTokens"),
   tokenview: document.getElementById("tokenview"),
-  tokenCount: document.getElementById("tokenCount"),
   committed: document.getElementById("committed"),
   temp: document.getElementById("temp"),
   topk: document.getElementById("topk"),
@@ -46,6 +49,7 @@ const els = {
 // State
 let seed = ""; // the prompt text at the time of the first Predict
 let committed = []; // [{ token, wasTop }] committed so far, in order
+let lastTokenCount = 0; // number of prompt tokens (shown by the counter on the Tokens tab)
 let baseCandidates = null; // [{ token, logprob }] for the CURRENT position, from the API
 let finished = false; // true once end-of-text is reached — no more predictions
 let busy = false;
@@ -106,9 +110,31 @@ els.prompt.addEventListener("input", () => {
 els.nextBtn.addEventListener("click", () => commitNextToken());
 els.resetBtn.addEventListener("click", () => reset());
 
+// The Prompt / Tokens tabs show EITHER the editable box OR the tokenized view,
+// never both.
+els.tabPrompt.addEventListener("click", () => showTab("prompt"));
+els.tabTokens.addEventListener("click", () => showTab("tokens"));
+
 updateCounter();
 tokenizePrompt(); // show the token split for the pre-filled prompt on load
 predictFromState(); // and predict its next token right away
+
+// ---- prompt / tokens tabs ----
+
+// Switch between the editable prompt ("prompt") and the tokenized view
+// ("tokens"). Selecting Tokens re-tokenizes; selecting Prompt focuses the box.
+function showTab(which) {
+  const tokens = which === "tokens";
+  els.editMode.style.display = tokens ? "none" : "block";
+  els.viewMode.style.display = tokens ? "block" : "none";
+  els.tabPrompt.classList.toggle("active", !tokens);
+  els.tabTokens.classList.toggle("active", tokens);
+  els.tabPrompt.setAttribute("aria-selected", String(!tokens));
+  els.tabTokens.setAttribute("aria-selected", String(tokens));
+  updateCounter(); // swap char count <-> token count
+  if (tokens) tokenizePrompt();
+  else els.prompt.focus();
+}
 
 // ---- main actions ----
 
@@ -515,7 +541,8 @@ async function tokenizePrompt() {
     renderTokens(data.tokens || []);
   } catch (err) {
     if (reqId !== tokenizeReqId) return;
-    els.tokenCount.textContent = "";
+    lastTokenCount = 0;
+    updateCounter();
     els.tokenview.innerHTML = `<span class="tokenview-empty">Couldn't tokenize: ${escapeHtml(err.message)}</span>`;
   }
 }
@@ -523,13 +550,13 @@ async function tokenizePrompt() {
 // Render the tokens as colored chips with visible whitespace. Colors cycle so
 // adjacent tokens always differ, making the boundaries pop.
 function renderTokens(tokens) {
+  lastTokenCount = tokens.length;
+  updateCounter(); // the counter reflects tokens when the Tokens tab is active
   if (!tokens.length) {
-    els.tokenCount.textContent = "";
     els.tokenview.innerHTML =
-      '<span class="tokenview-empty">Type above to see how it splits into tokens.</span>';
+      '<span class="tokenview-empty">Type a prompt to see how it splits into tokens.</span>';
     return;
   }
-  els.tokenCount.textContent = `— ${tokens.length} token${tokens.length === 1 ? "" : "s"}`;
   els.tokenview.innerHTML = "";
   tokens.forEach((t, i) => {
     const span = document.createElement("span");
@@ -548,10 +575,18 @@ function renderTokens(tokens) {
 
 // ---- helpers ----
 
+// The counter shows the CHARACTER count on the Prompt tab and the TOKEN count on
+// the Tokens tab.
 function updateCounter() {
-  const n = els.prompt.value.length;
-  els.counter.textContent = `${n} / 500`;
-  els.counter.className = "counter" + (n >= 500 ? " limit" : "");
+  const onTokens = els.tabTokens.classList.contains("active");
+  if (onTokens) {
+    els.counter.textContent = `${lastTokenCount} token${lastTokenCount === 1 ? "" : "s"}`;
+    els.counter.className = "counter";
+  } else {
+    const n = els.prompt.value.length;
+    els.counter.textContent = `${n} / 500`;
+    els.counter.className = "counter" + (n >= 500 ? " limit" : "");
+  }
 }
 
 function setBusy(b) {

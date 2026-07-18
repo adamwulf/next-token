@@ -19,6 +19,8 @@
 
 const DEFAULTS = { temp: 1.0, topk: 5, topp: 1.0 };
 const DEFAULT_PROMPT = "The capital of France is"; // Reset restores this
+const EOT = "<|endoftext|>"; // the model's end-of-text (stop) token string
+const EOT_LABEL = "⟨end of text⟩"; // how we display it
 
 const els = {
   prompt: document.getElementById("prompt"),
@@ -44,6 +46,7 @@ const els = {
 let seed = ""; // the prompt text at the time of the first Predict
 let committed = []; // [{ token, wasTop }] committed so far, in order
 let baseCandidates = null; // [{ token, logprob }] for the CURRENT position, from the API
+let finished = false; // true once end-of-text is reached — no more predictions
 let busy = false;
 
 // Token-view state (declared here so the on-load tokenizePrompt() call, which
@@ -94,6 +97,13 @@ tokenizePrompt(); // show the token split for the pre-filled prompt on load
 // fetches the candidates for the next position after (prompt + committed).
 async function startFresh() {
   seed = els.prompt.value;
+  // If the sequence had already finished, drop the trailing end-of-text token
+  // so we predict from clean text rather than from the literal "<|endoftext|>".
+  if (finished) {
+    finished = false;
+    if (committed.length && committed[committed.length - 1].eot) committed.pop();
+    renderCommitted();
+  }
   await fetchCandidates();
 }
 
@@ -124,6 +134,18 @@ async function commitCandidate(token) {
 // less-likely token" (which is what temperature / top-k / top-p enable).
 async function commitToken(token) {
   const wasTop = token === topCandidateToken();
+
+  // If the chosen token is end-of-text, the sequence is complete: commit it as
+  // the stop token and finish, rather than trying to predict past it.
+  if (token === EOT) {
+    finish(
+      { wasTop },
+      `You chose <strong>${EOT_LABEL}</strong> — the end-of-text token. That completes the text, so prediction stops here. Press <strong>Reset</strong> to start over.`,
+      "Finished — end-of-text was chosen."
+    );
+    return;
+  }
+
   committed.push({ token, wasTop });
   renderCommitted();
   await fetchCandidates();
@@ -138,9 +160,12 @@ function topCandidateToken() {
 
 // Truncate the committed sequence back to `keep` tokens, then re-predict from
 // that point. Called by a breadcrumb chip's ✕ (keep = index of that token).
+// Backing out clears the finished state — removing the end-of-text token (or
+// anything before it) means we're no longer at the end and predict again.
 async function backOutTo(keep) {
   if (busy) return;
   committed = committed.slice(0, keep);
+  finished = false;
   renderCommitted();
   await fetchCandidates();
 }
@@ -150,6 +175,7 @@ function reset() {
   seed = "";
   committed = [];
   baseCandidates = null;
+  finished = false;
   els.prompt.value = DEFAULT_PROMPT; // restore the default prompt, not blank
   els.temp.value = DEFAULTS.temp;
   els.topk.value = DEFAULTS.topk;
@@ -183,9 +209,19 @@ async function fetchCandidates() {
     });
     const data = await resp.json();
     if (!resp.ok) throw new Error(data.error || `Request failed (${resp.status})`);
-    if (!Array.isArray(data.candidates) || data.candidates.length === 0) {
-      throw new Error("No candidates were returned for this text.");
+
+    // The model decided the text is complete: it predicted end-of-text and the
+    // API returned no distribution. Enter the finished state — show the stop
+    // token and stop predicting.
+    if (data.finished || !Array.isArray(data.candidates) || data.candidates.length === 0) {
+      finish(
+        { wasTop: true },
+        `The model predicted <strong>${EOT_LABEL}</strong> — it considers the text complete, so prediction stops here. Press <strong>Reset</strong> to start over.`,
+        "Finished — the model reached the end of the text."
+      );
+      return;
     }
+
     baseCandidates = data.candidates;
     rerenderCandidates();
     els.nextBtn.disabled = false;
@@ -199,6 +235,21 @@ async function fetchCandidates() {
   } finally {
     setBusy(false);
   }
+}
+
+// Reach end-of-text: append the stop token to the breadcrumb, show a "finished"
+// note where the candidates were, and prevent further prediction. This is the
+// teaching moment — the model itself decided the text is done. `chip` carries
+// per-token fields (e.g. wasTop); `noteHtml` and `status` describe the finish.
+function finish(chip, noteHtml, status) {
+  finished = true;
+  committed.push({ token: EOT, eot: true, ...chip });
+  baseCandidates = null;
+  renderCommitted();
+  els.candHead.style.display = "none";
+  els.bars.innerHTML = `<div class="finished-note">${noteHtml}</div>`;
+  els.nextBtn.disabled = true;
+  setStatus(status);
 }
 
 // ---- distribution math (all client-side) ----
@@ -323,10 +374,13 @@ function renderCommitted() {
   els.committed.innerHTML = "";
   committed.forEach((c, i) => {
     const chip = document.createElement("span");
-    // Colour by whether this was the model's most-probable token. A "non-top"
-    // chip is the teaching moment: the model didn't take the obvious path.
-    chip.className = "chip" + (c.wasTop ? " top" : " nontop");
-    chip.title = c.wasTop
+    // The end-of-text token gets its own "stop" style; otherwise colour by
+    // whether this was the model's most-probable token (a "non-top" chip is the
+    // teaching moment: the model didn't take the obvious path).
+    chip.className = "chip" + (c.eot ? " eot" : c.wasTop ? " top" : " nontop");
+    chip.title = c.eot
+      ? "End-of-text — the model completed the text here"
+      : c.wasTop
       ? "The model's most-probable token"
       : "NOT the most-probable token — a less-likely choice";
     chip.innerHTML = `<span>${tokenHtml(c.token)}</span><button class="x" title="Back out to here" aria-label="Remove this token and everything after it">✕</button>`;
@@ -412,7 +466,7 @@ function setBusy(b) {
   busy = b;
   els.predictBtn.disabled = b;
   els.resetBtn.disabled = b;
-  els.nextBtn.disabled = b || !baseCandidates;
+  els.nextBtn.disabled = b || !baseCandidates || finished;
 }
 
 function setStatus(msg, isError = false) {
@@ -421,8 +475,10 @@ function setStatus(msg, isError = false) {
 }
 
 // Render a token with visible whitespace so learners can see tokens often
-// carry a leading space or a newline.
+// carry a leading space or a newline. The end-of-text token gets a clear label
+// instead of its raw "<|endoftext|>" string.
 function tokenHtml(token) {
+  if (token === EOT) return `<span class="eot">${EOT_LABEL}</span>`;
   return escapeHtml(token)
     .replace(/ /g, '<span class="ws">␣</span>')
     .replace(/\n/g, '<span class="ws">⏎</span>');

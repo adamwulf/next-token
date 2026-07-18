@@ -96,12 +96,22 @@ export default async (req) => {
   }
 
   const data = await openaiResp.json();
+  const choice = data?.choices?.[0];
 
   // Completions API shape: choices[0].logprobs.top_logprobs is an array (one
   // entry per generated token). Each entry is an OBJECT mapping token -> logprob,
   // e.g. { " Paris": -0.21, "\n\n": -3.0, ... }. We take the first position.
-  const topLogprobs = data?.choices?.[0]?.logprobs?.top_logprobs?.[0];
+  const topLogprobs = choice?.logprobs?.top_logprobs?.[0];
+
   if (!topLogprobs || typeof topLogprobs !== "object") {
+    // When the model decides the text is COMPLETE, the API halts before
+    // emitting this position's logprobs and returns finish_reason:"stop" with
+    // empty arrays. That's not an error — it's the model predicting end-of-text.
+    // Report it as a finished state so the UI can show the stop token and stop
+    // predicting, rather than surfacing a scary 502.
+    if (choice?.finish_reason === "stop") {
+      return json({ model: MODEL, candidates: [], finished: true });
+    }
     return json({ error: "OpenAI response did not include token logprobs." }, 502);
   }
 

@@ -15,6 +15,7 @@ One HTML page + one JS file talking to a single Netlify Function. The OpenAI API
 - **Next token →** — samples one token *from the reshaped distribution* (per the current temperature / top-k / top-p, so not always the argmax), commits it, and re-predicts from the new position.
 - **Click a candidate** — instead of sampling, click any (non-excluded) candidate word to choose *that* token yourself. It's committed and the demo re-predicts from the new text.
 - **Committed-token breadcrumb** — the tokens chosen so far, each with a ✕ that truncates the sequence back to before that token and re-predicts from there. Each chip is **gold if it was the model's most-probable token** and **magenta if it was a less-likely pick** — the core teaching moment: at higher temperature / wider top-k / top-p the model stops taking the obvious path, and the magenta chips show exactly when.
+- **End-of-text / finished state** — the model can predict the special `⟨end of text⟩` token, meaning "the text is complete." It shows up two ways: as one of the top-5 candidates (you can choose it), and — when the model is sure the text is done — as *the* prediction. Either way the demo commits the stop token to the breadcrumb, shows a "finished" note, and stops predicting (press Reset or ✕ to continue). See "End-of-text" below.
 - **Predict** re-reads the prompt box and predicts from `prompt + committed tokens` — it **keeps** the tokens already chosen (it doesn't clear the breadcrumb).
 - **Reset** clears the committed tokens, resets the meta-parameters, and **restores the default prompt** (`"The capital of France is"`) into the box.
 
@@ -104,6 +105,17 @@ The "your text as tokens" view shows the model's **exact** token boundaries. Get
 - **So the only exact source is the OpenAI API itself.** `davinci-002` shares `gpt-3.5-turbo-instruct`'s exact tokenizer *and* supports `echo: true` (the instruct model refuses `echo` + `logprobs` together), so `tokenize.mjs` asks `davinci-002` to echo the prompt back split into its tokens (`choices[0].logprobs.tokens`). The front-end debounces this (~400 ms) so it isn't called on every keystroke.
 
 Edge cases the function handles: a 1-token prompt (the API needs ≥2 tokens for `max_tokens: 0`, so it retries with `max_tokens: 1` and drops the generated token) and multi-byte characters (emoji, CJK), which `echo` returns as raw `bytes:\xNN` fragments — the UI shows those as a hatched "raw bytes" chip rather than garbled text.
+
+## End-of-text (the "finished" state)
+
+The model can predict `<|endoftext|>` — the special token that means "this text is complete." The demo surfaces it as a first-class token in the token-by-token flow, but the OpenAI API exposes it in two different shapes:
+
+- **As one of the top-5 candidates** (`finish_reason: "length"`): near a natural ending, `<|endoftext|>` shows up in `top_logprobs` with a real probability (e.g. `"The capital of France is Paris."` → `<|endoftext|>` ~84%). It renders as a clear `⟨end of text⟩` chip; choose it and the demo finishes.
+- **As a bare stop** (`finish_reason: "stop"`): when the model is certain the text is done, the API **halts before emitting this position's logprobs** and returns *empty* arrays — no distribution at all, not even the stop token's own probability. (It's odd that the API doesn't just return a list with `<|endoftext|>` on top, but that's the behavior, and `logit_bias` can't override it for `gpt-3.5-turbo-instruct`.) The function reports this as `{ finished: true }` (a 200, **not** an error), and the UI interprets it as "the model reached the end of the text."
+
+In both cases the demo commits the `⟨end of text⟩` token to the breadcrumb and stops predicting — a teaching beat showing that *the model itself* decides when the text is done. Press **Reset**, or ✕ the stop token, to continue.
+
+(We can't "predict past" the stop token exactly: doing so requires appending the real end-of-text **token id**, but OpenAI never exposes token ids for this model and no offline tokenizer matches its vocabulary exactly — so we treat end-of-text as a terminal state rather than guessing ids.)
 
 ## Deploying publicly (optional — TODO, deferred)
 

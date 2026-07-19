@@ -342,6 +342,9 @@
 
       .footnote { margin-top: 30px; color: var(--muted); font-size: 15px; line-height: 1.6; }
       .footnote code { background: var(--panel-2); padding: 2px 6px; border-radius: 5px; font-size: 14px; }
+      .footnote a { color: var(--muted); text-decoration: underline; text-underline-offset: 2px; }
+      .footnote a:hover { color: var(--accent); }
+      .repo-link { margin-top: 14px; }
     </style>
   </head>
   <body>
@@ -466,6 +469,10 @@
         <strong>entirely in your browser</strong> — so you watch the real probabilities transform.
         Each bar shows a candidate's real probability; <strong>greyed-out</strong> rows are the ones
         your top-k / top-p settings pull out of sampling (they still show their true probability).
+      </p>
+
+      <p class="footnote repo-link">
+        Source on <a href="https://github.com/adamwulf/next-token" target="_blank" rel="noopener">GitHub</a>.
       </p>
     </div>
 
